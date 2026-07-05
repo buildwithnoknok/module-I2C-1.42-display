@@ -16,7 +16,7 @@ protocol, so the display plugs into the standard JST SH bus like any other modul
 | **Panel link** | 4-wire SPI (CH32 → NV3022B); interface is fixed, **no IM strapping** |
 | **Backlight** | 3 parallel LEDs (~3 V, 45–60 mA) → **MT3540 boost to 4.5 V** + 33 Ω ballast + PWM dimming |
 | **FPC** | 13-pin, **0.70 mm pitch, soldered** to the board (PCBWay-assembled) |
-| **Board** | small (~24 × 42 mm); panel bonded on front, FPC wraps to bottom-side pads |
+| **Board** | **40 × 30 mm** (noknok 4×3 cm standard); 4× M2.5 mounting holes 2.25 mm from each corner; 2× JST-SH on the W + S edges; panel bonded on front, FPC wraps to bottom-side pads |
 
 ## Architecture
 
