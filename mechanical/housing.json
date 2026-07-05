@@ -1,0 +1,28 @@
+{
+  "schema": "noknok-housing/1",
+  "module": "noknok-display-1.42",
+  "repo": "module-I2C-1.42-display",
+  "bus": "I2C",
+  "footprint": { "w": 40, "h": 30 },
+  "pcb_thickness": 1.6,
+  "clearance_top": null,
+  "clearance_bottom": null,
+  "mounting": {
+    "screw": "M2.5",
+    "holes": [
+      { "x": 2.25,  "y": 2.25,  "dia": 2.5 },
+      { "x": 2.25,  "y": 27.75, "dia": 2.5 },
+      { "x": 37.75, "y": 2.25,  "dia": 2.5 },
+      { "x": 37.75, "y": 27.75, "dia": 2.5 }
+    ]
+  },
+  "connectors": [
+    { "type": "JST-SH-I2C", "edge": "W", "x": 3.1,  "y": 15.0, "role": "chain" },
+    { "type": "JST-SH-I2C", "edge": "S", "x": 20.0, "y": 3.1,  "role": "chain" }
+  ],
+  "top_feature": {
+    "type": "window", "shape": "rect", "x": 19.8, "y": 15.0, "w": 36.52, "h": 18.08,
+    "depth": "through", "verified": false
+  },
+  "notes": "Dimensions authoritative from KiCad (Christopher, 2026-07-05): PCB 40x30 mm, panel glass outline 36.52x18.08 mm. Module README still states ~24x42 mm and MUST be corrected. Window = glass outline; lid opening should be inset ~1 mm for a bezel lip and the visible active area (80x160 px) is smaller than the glass. clearance_top/bottom pending measurement (note FPC folds to bottom-side pads -> clearance_bottom is non-trivial)."
+}
