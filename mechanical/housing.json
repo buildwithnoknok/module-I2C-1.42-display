@@ -5,8 +5,8 @@
   "bus": "I2C",
   "footprint": { "w": 40, "h": 30 },
   "pcb_thickness": 1.6,
-  "clearance_top": null,
-  "clearance_bottom": null,
+  "clearance_top": 2.0,
+  "clearance_bottom": 3.0,
   "mounting": {
     "screw": "M2.5",
     "holes": [
@@ -21,8 +21,8 @@
     { "type": "JST-SH-I2C", "edge": "S", "x": 20.0, "y": 3.1,  "role": "chain" }
   ],
   "top_feature": {
-    "type": "window", "shape": "rect", "x": 19.8, "y": 15.0, "w": 36.52, "h": 18.08,
+    "type": "window", "shape": "rect", "x": 19.8, "y": 15.0, "w": 32.35, "h": 16.18,
     "depth": "through", "verified": false
   },
-  "notes": "Dimensions authoritative from KiCad (Christopher, 2026-07-05): PCB 40x30 mm, panel glass outline 36.52x18.08 mm. Module README still states ~24x42 mm and MUST be corrected. Window = glass outline; lid opening should be inset ~1 mm for a bezel lip and the visible active area (80x160 px) is smaller than the glass. clearance_top/bottom pending measurement (note FPC folds to bottom-side pads -> clearance_bottom is non-trivial)."
+  "notes": "Board 40x30 (Edge_Cuts gerber 2026-07-02). Panel centred: glass outline 36.52x18.08 (O,D), active area 32.35x16.18 (A,A) per datasheet; glass centre ~(19.8,15) from KiCad. clearance_top=2.0: the bonded TFT panel is only 2 mm above the PCB (Christopher) -> a thin, flush display window. top_feature window = the 32.35x16.18 ACTIVE area; the glass (36.52x18.08) is ~2 mm larger each side so the cover bezel overlaps + frames + retains it. clearance_bottom=3.0 (JST-SH socket; the panel FPC also folds to bottom-side pads - verify). NOTE this module differs from the 20x20 ones: 40x30 footprint, connectors on W + S edges, and it's the first WINDOW top_feature - the configurator will need to handle these. Module README still says ~24x42 mm and MUST be corrected to 40x30 (see earlier)."
 }
