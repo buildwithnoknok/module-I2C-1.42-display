@@ -95,10 +95,26 @@
  * If colours come out as noise/garbage, try the other one. */
 #define COLMOD_VALUE     0x05
 
+/* ── Rework switch (rev 1.0 boards only) ─────────────────────────────────
+ * Rev 1.0 shipped with a mirrored FPC footprint. A rev-1.0 board can be
+ * rescued for bench use by desoldering the panel and re-soldering it rotated
+ * 180° in the plane of the board — that reverses the finger order and undoes
+ * the mirror. The panel then hangs off the board (no housing, bench only) and
+ * its image is upside down, which MADCTL corrects in the controller.
+ *
+ *   1 = rev 1.0 board with the panel rotated 180° (the rework)
+ *   0 = corrected board from batch 2 onwards                                */
+#define PANEL_ROTATED_REWORK  1
+
 /* MADCTL (0x36) — memory access control: row/column order + RGB/BGR.
- * 0x00 = portrait, top-left origin, RGB order. If red/blue are swapped set
- * bit 3 (0x08 = BGR). Rotation lands in the real firmware, not here. */
-#define MADCTL_VALUE     0x00
+ * 0x00 = portrait, top-left origin, RGB order.
+ * 0xC0 = MY|MX = rotated 180°, which cancels the physically rotated panel.
+ * If red and blue come out swapped, add bit 3 (0x08 = BGR). */
+#if PANEL_ROTATED_REWORK
+  #define MADCTL_VALUE   0xC0
+#else
+  #define MADCTL_VALUE   0x00
+#endif
 
 /* Backlight PWM: TIM1 at 48 MHz / (ATRLR+1) = 48 kHz — well above any
  * visible or camera-visible flicker. Duty is 0..BL_MAX. */
