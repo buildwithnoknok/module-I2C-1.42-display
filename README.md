@@ -1,6 +1,25 @@
 # noknok 1.42″ Display Module (I2C)
 
-> **Status:** 🚧 In development — schematic complete, pre-prototype. Not yet built or flashed.
+> **Status:** 🚧 In development — **rev 1.0 boards are non-functional, respin required.**
+
+> ### ⚠️ Rev 1.0 defect — mirrored FPC footprint
+>
+> The first assembled boards (July 2026) have the panel mounted **mirrored**: the
+> `noknok_ER-TFT1.42-1_13pin_solder_proto` footprint numbered its 13 pads backwards, so board
+> pad *n* contacts panel pin *14−n*. The panel's **RES** lands on GND (permanent reset), its
+> **VCC** lands on the SCK line (never powered), and **LEDA** lands on a touch-NC pin — so the
+> backlight rail sits at a healthy 4.6 V driving 0.18 mA into nothing, and the panel is dead.
+>
+> The footprint is **fixed** in the Ecosystem library (commit `cb83a33`) — pad 1 is now on the
+> `+X` end. The KiCad layout needs re-importing and the board re-fabbing.
+>
+> Everything else on rev 1.0 is **bench-proven good** and does not need re-debugging: the
+> CH32V003 runs on bus power, flash verifies byte-for-byte, GPIO outputs work, the MT3540 boost
+> delivers 4.6 V, the 2N7002 backlight switch works, and the reset RC releases correctly.
+>
+> **Before ordering the respin:** physically compare the pin-1 label printed on the panel's own
+> FPC against the board's `Pin1` silk marker. A netlist check cannot catch this class of error —
+> the schematic was correct all along.
 
 A modular **1.42-inch colour TFT** display for the noknok ecosystem. A CH32V003 acts as a
 local "GPU" — it renders text, icons and graphics to the panel and speaks the noknok I2C
