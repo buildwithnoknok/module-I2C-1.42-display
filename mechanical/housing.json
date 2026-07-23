@@ -5,7 +5,7 @@
   "bus": "I2C",
   "footprint": { "w": 40, "h": 30 },
   "pcb_thickness": 1.6,
-  "clearance_top": 2.0,
+  "clearance_top": 2.2,
   "clearance_bottom": 3.0,
   "mounting": {
     "screw": "M2.5",
@@ -17,12 +17,18 @@
     ]
   },
   "connectors": [
-    { "type": "JST-SH-I2C", "edge": "W", "x": 3.1,  "y": 15.0, "role": "chain" },
-    { "type": "JST-SH-I2C", "edge": "S", "x": 20.0, "y": 3.1,  "role": "chain" }
+    { "type": "JST-SH-I2C", "edge": "W", "x": 3.1,  "y": 15.0, "exit": "W", "role": "chain" },
+    { "type": "JST-SH-I2C", "edge": "N", "x": 20.0, "y": 26.9, "exit": "N", "role": "chain" }
   ],
   "top_feature": {
     "type": "window", "shape": "rect", "x": 19.8, "y": 15.0, "w": 32.35, "h": 16.18,
     "depth": "through", "verified": false
   },
-  "notes": "Board 40x30 (Edge_Cuts gerber 2026-07-02). Panel centred: glass outline 36.52x18.08 (O,D), active area 32.35x16.18 (A,A) per datasheet; glass centre ~(19.8,15) from KiCad. clearance_top=2.0: the bonded TFT panel is only 2 mm above the PCB (Christopher) -> a thin, flush display window. top_feature window = the 32.35x16.18 ACTIVE area; the glass (36.52x18.08) is ~2 mm larger each side so the cover bezel overlaps + frames + retains it. clearance_bottom=3.0 (JST-SH socket; the panel FPC also folds to bottom-side pads - verify). NOTE this module differs from the 20x20 ones: 40x30 footprint, connectors on W + S edges, and it's the first WINDOW top_feature - the configurator will need to handle these. Module README still says ~24x42 mm and MUST be corrected to 40x30 (see earlier)."
+  "keepouts": [
+    { "id": "fpc-wrap", "x": 36.0, "y": 6.0, "w": 4.0, "h": 18.0, "side": "both",
+      "note": "Panel FPC folds around the E board edge here. Edge_Cuts has a 1.5 mm x 18 mm recess (x 38.5-40, y 6-24) so the folded flex stays inside the 40 mm outline. Nothing in the housing may clamp or rub this band." },
+    { "id": "fpc-run", "x": 25.0, "y": 10.0, "w": 13.5, "h": 10.0, "side": "bottom",
+      "note": "Flex runs W from the fold to the 13-pin solder pads centred at (26.78, 15) on the MCU side. The board keeps this corridor component-free; housing columns must too." }
+  ],
+  "notes": "Board 40x30, verified against the production Edge_Cuts gerber + PCBWay placement CSV + KiCad PCB (2026-07-23, first physical modules in hand). ORIENTATION - this is the only noknok module whose payload sits on KiCad's BOTTOM side: the TFT panel is bonded to the bare B side and its 13-pin FPC wraps around the EAST board edge to solder pads on the F side (F carries the MCU, boost, both JST-SH sockets). All coordinates here are the PAYLOAD view (origin = bottom-left corner looking AT the screen) = the KiCad top view mirrored in Y (v' = 30 - v_kicad_top), the same convention the buzzer/knob/ledbutton profiles use. Consequence: J2 is on the N edge at y=26.9 in this frame even though KiCad and the README describe it as the S edge. clearance_top=2.2: the bonded panel stands 2.08 mm proud (measured by Christopher); the extra 0.12 mm keeps the cover bezel from pressing on the glass. top_feature window = the 32.35x16.18 ACTIVE area; the glass (36.52x18.08) is ~2.09 mm larger per side in X and ~0.95 mm in Y, so the cover bezel overlaps and frames it. Window centre x=19.8 and the glass position are still UNMEASURED - confirm with calipers now that boards exist, the Y bezel is only ~0.95 mm so a Y error eats it fast. clearance_bottom=3.0 = JST-SH SM04B-SRSS-TB body 2.95 mm, the tallest MCU-side part (confirmed by Christopher). Connector exit directions derived from the footprint geometry: signal pads sit at footprint-local y=-2 and the mating opening at local +y, so with KiCad's global = origin + Rot(-theta) * local every socket opens straight off its nearest board edge - J1 west, J2 north (payload frame). All four M2.5 holes clear the glass (glass spans y 5.96-24.04, holes at y 2.25 / 27.75), so the front cover can use posts at every corner - no collar needed. Mounting-hole reference: the (2.25, 2.25) corner is the noknok_FlashPads_I2C-module_1x3_M2.5 footprint (flash pads around the same M2.5 hole), the other three are plain noknok_MountingHole_2.5mm_M2.5."
 }
