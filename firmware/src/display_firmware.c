@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 noknok / Christopher Houben
  *
- * noknok 1.42" Display Module Firmware  v0.2.0
+ * noknok 1.42" Display Module Firmware  v0.3.0
  * CH32V003F4U6 (QFN-20)  |  Stack: cnlohr/ch32fun
  *
  * A real noknok I2C module: enumeration, the standard system commands, drawing
@@ -81,7 +81,7 @@
 
 #define PROTOCOL_VERSION 0x01
 #define FW_VERSION_MAJOR 0
-#define FW_VERSION_MINOR 2
+#define FW_VERSION_MINOR 3
 #define FW_VERSION_PATCH 0
 
 #define CMD_CLEAR            0x01
