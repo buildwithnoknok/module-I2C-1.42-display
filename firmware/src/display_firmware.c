@@ -2,12 +2,18 @@
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 noknok / Christopher Houben
  *
- * noknok 1.42" Display Module Firmware  v0.1.0
+ * noknok 1.42" Display Module Firmware  v0.2.0
  * CH32V003F4U6 (QFN-20)  |  Stack: cnlohr/ch32fun
  *
- * STAGE 1: a real noknok I2C module — enumeration, the standard system
- * commands, and the drawing primitives that need no stored assets.
- * Fonts, icons and the host-blit protocol are stage 2.
+ * A real noknok I2C module: enumeration, the standard system commands, drawing
+ * primitives, a built-in 8x8 monospace font (ASCII, integer-scaled 1-4) and the
+ * 1bpp host-blit path. Icons and a second larger font are still to come.
+ *
+ * TEXT SIZING — the agreed split. The module renders the NATIVE heights only
+ * (8/16/24/32 = the 8x8 font at scale 1-4). Any other size, and any nicer
+ * typeface, is rasterised on the Pico and sent as a 1bpp blit. noknok.py picks
+ * the path automatically, so `size` is always an exact pixel height and there
+ * is never a "size not supported" error.
  *
  * ── Bootloader-hosted build ───────────────────────────────────────────────
  *   Runs UNDER the shared noknok I2C bootloader (module-I2C-bootloader).
@@ -37,6 +43,10 @@
  *   Master WRITE:
  *     [0x01, colHi, colLo]                        CLEAR to colour
  *     [0x02, x, y, w, h, colHi, colLo]            FILL_RECT
+ *     [0x03, x, y, style, fgHi,fgLo, bgHi,bgLo, ascii...]   DRAW_TEXT
+ *              style: bits0-2 scale 1-4, bit3 transparent bg, bits4-5 font id
+ *     [0x05, x, y, w, h, fgHi,fgLo, bgHi,bgLo, flags]       BLIT_BEGIN (1bpp)
+ *     [0x06, <=64 bytes of 1bpp rows]                       BLIT_DATA (repeat)
  *     [0x10, level]                               SET_BACKLIGHT (0-255)
  *     [0x12, mode]                                DISPLAY 0=off 1=on 2=sleep
  *     [0x15]                                      GET_INFO -> next read = 5 B
@@ -58,6 +68,7 @@
 
 #include "ch32fun.h"
 #include <stdint.h>
+#include "font8x8.h"
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * CONFIGURATION
@@ -69,11 +80,14 @@
 
 #define PROTOCOL_VERSION 0x01
 #define FW_VERSION_MAJOR 0
-#define FW_VERSION_MINOR 1
+#define FW_VERSION_MINOR 2
 #define FW_VERSION_PATCH 0
 
 #define CMD_CLEAR            0x01
 #define CMD_FILL_RECT        0x02
+#define CMD_DRAW_TEXT        0x03
+#define CMD_BLIT_BEGIN       0x05
+#define CMD_BLIT_DATA        0x06
 #define CMD_SET_BACKLIGHT    0x10
 #define CMD_DISPLAY          0x12
 #define CMD_GET_INFO         0x15
@@ -319,6 +333,128 @@ static void gpu_fill_rect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t c
 
 static void gpu_clear(uint16_t c) { gpu_fill_rect(0, 0, PANEL_W, PANEL_H, c); }
 
+/* ── Text ────────────────────────────────────────────────────────────────
+ * Monospace 8x8 base font scaled by an integer 1-4, giving native heights
+ * 8/16/24/32. Anything else (arbitrary sizes, nicer typefaces) is rendered on
+ * the Pico and sent through the blit path instead — that is the agreed split.
+ *
+ * The font is LSB-first: bit 0 of each row byte is the LEFTMOST pixel.
+ *
+ * Opaque draw streams a whole scaled glyph cell in one window, which is fast.
+ * Transparent draw has to place each set pixel individually, because with no
+ * local framebuffer we cannot read back what is underneath — so it is much
+ * slower and is meant for small accents, not paragraphs.
+ */
+static void gpu_draw_glyph(uint8_t x, uint8_t y, uint8_t ch, uint8_t scale,
+                           uint16_t fg, uint16_t bg, uint8_t transparent)
+{
+    const uint8_t *rows;
+    uint8_t cell = (uint8_t)(FONT8X8_H * scale);
+    uint8_t fh = fg >> 8, fl = fg & 0xFF;
+    uint8_t bh = bg >> 8, bl = bg & 0xFF;
+
+    if (ch < FONT8X8_FIRST || ch > FONT8X8_LAST) ch = '?';
+    rows = font8x8[ch - FONT8X8_FIRST];
+
+    if (x >= PANEL_W || y >= PANEL_H) return;
+
+    if (transparent) {
+        for (uint8_t r = 0; r < FONT8X8_H; r++) {
+            uint8_t bits = rows[r];
+            for (uint8_t c = 0; c < FONT8X8_W; c++) {
+                if (bits & (1u << c))          /* LSB = leftmost */
+                    gpu_fill_rect((uint8_t)(x + c * scale),
+                                  (uint8_t)(y + r * scale), scale, scale, fg);
+            }
+        }
+        return;
+    }
+
+    /* Opaque: one window for the whole cell, pixels streamed row by row. */
+    if (x + cell > PANEL_W || y + cell > PANEL_H) {
+        /* Would overflow the panel — fall back to the clipped per-pixel path
+         * so a glyph at the edge degrades instead of corrupting the window. */
+        for (uint8_t r = 0; r < FONT8X8_H; r++) {
+            uint8_t bits = rows[r];
+            for (uint8_t c = 0; c < FONT8X8_W; c++)
+                gpu_fill_rect((uint8_t)(x + c * scale), (uint8_t)(y + r * scale),
+                              scale, scale, (bits & (1u << c)) ? fg : bg);
+        }
+        return;
+    }
+
+    gpu_busy = 1;
+    gpu_window(x, y, cell, cell);
+    for (uint8_t r = 0; r < FONT8X8_H; r++) {
+        uint8_t bits = rows[r];
+        for (uint8_t sy = 0; sy < scale; sy++) {
+            for (uint8_t c = 0; c < FONT8X8_W; c++) {
+                uint8_t on = (bits >> c) & 1u;
+                for (uint8_t sx = 0; sx < scale; sx++) {
+                    spi_tx(on ? fh : bh);
+                    spi_tx(on ? fl : bl);
+                }
+            }
+        }
+    }
+    spi_idle();
+    gpu_busy = 0;
+}
+
+/* ── 1bpp blit (host-rendered assets) ────────────────────────────────────
+ * BLIT_BEGIN opens a window and latches the colours; BLIT_DATA then streams
+ * 1bpp rows in chunks of up to 64 bytes. Kept as separate transactions because
+ * the CH32V003 has 2 KB of RAM and cannot buffer a whole bitmap — each chunk is
+ * expanded to RGB565 and pushed to the panel as it arrives.
+ *
+ * We do NOT need a flow-control protocol: at 100 kHz an I2C byte takes ~90 us
+ * while expanding it to 8 pixels over SPI at 6 MHz takes ~21 us, so the module
+ * always drains faster than the host delivers. */
+static uint16_t blit_fg = 0xFFFF, blit_bg = 0x0000;
+static uint8_t  blit_transparent = 0;
+static uint32_t blit_pixels_left = 0;
+static uint8_t  blit_row_bytes = 0, blit_row_pos = 0;
+static uint8_t  blit_w = 0;
+
+static void gpu_blit_begin(uint8_t x, uint8_t y, uint8_t w, uint8_t h,
+                           uint16_t fg, uint16_t bg, uint8_t flags)
+{
+    if (x >= PANEL_W || y >= PANEL_H || w == 0 || h == 0
+        || x + w > PANEL_W || y + h > PANEL_H) { last_err = 3; blit_pixels_left = 0; return; }
+
+    blit_fg = fg; blit_bg = bg;
+    blit_transparent = flags & 1u;
+    blit_w = w;
+    blit_row_bytes = (uint8_t)((w + 7) / 8);
+    blit_row_pos = 0;
+    blit_pixels_left = (uint32_t)w * h;
+
+    if (!blit_transparent) gpu_window(x, y, w, h);
+}
+
+static void gpu_blit_data(const uint8_t *data, uint8_t n)
+{
+    if (blit_pixels_left == 0) { last_err = 4; return; }   /* no blit in progress */
+
+    gpu_busy = 1;
+    for (uint8_t i = 0; i < n && blit_pixels_left; i++) {
+        uint8_t bits = data[i];
+        /* Bits are MSB-first within each byte, rows padded to a byte boundary —
+         * the natural output of a host-side renderer. */
+        for (int8_t b = 7; b >= 0 && blit_pixels_left; b--) {
+            /* Skip the padding bits at the end of each row. */
+            if (blit_row_pos >= blit_w) break;
+            uint16_t c = ((bits >> b) & 1u) ? blit_fg : blit_bg;
+            spi_tx(c >> 8); spi_tx(c & 0xFF);
+            blit_row_pos++;
+            blit_pixels_left--;
+        }
+        if (blit_row_pos >= blit_w) blit_row_pos = 0;      /* next row */
+    }
+    spi_idle();
+    gpu_busy = 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * BACKLIGHT — TIM1_CH1 on PD2. Ramped, never snapped: the MT3540 boost taps
  * the SHARED 3.3V bus rail ahead of the module's 10R, so a cold inrush here is
@@ -525,6 +661,43 @@ static void process_command(void)
     case CMD_FILL_RECT:
         if (n >= 7) gpu_fill_rect(cmd[1], cmd[2], cmd[3], cmd[4],
                                   ((uint16_t)cmd[5] << 8) | cmd[6]);
+        else last_err = 1;
+        break;
+
+    case CMD_DRAW_TEXT:
+        /* [0x03, x, y, style, fgHi, fgLo, bgHi, bgLo, ascii...]
+         * style: bits 0-2 = scale (1-4), bit 3 = transparent background,
+         *        bits 4-5 = font index (only 0 = 8x8 exists today). */
+        if (n >= 9) {
+            uint8_t  x     = cmd[1], y = cmd[2];
+            uint8_t  scale = cmd[3] & 0x07;
+            uint8_t  trans = (cmd[3] >> 3) & 1u;
+            uint16_t fg    = ((uint16_t)cmd[4] << 8) | cmd[5];
+            uint16_t bg    = ((uint16_t)cmd[6] << 8) | cmd[7];
+
+            if (scale < 1) scale = 1;
+            if (scale > 4) scale = 4;
+
+            for (uint8_t i = 8; i < n; i++) {
+                uint8_t cx = (uint8_t)(x + (i - 8) * FONT8X8_W * scale);
+                if (cx >= PANEL_W) break;          /* ran off the edge */
+                gpu_draw_glyph(cx, y, cmd[i], scale, fg, bg, trans);
+            }
+        } else last_err = 1;
+        break;
+
+    case CMD_BLIT_BEGIN:
+        /* [0x05, x, y, w, h, fgHi, fgLo, bgHi, bgLo, flags] */
+        if (n >= 10)
+            gpu_blit_begin(cmd[1], cmd[2], cmd[3], cmd[4],
+                           ((uint16_t)cmd[5] << 8) | cmd[6],
+                           ((uint16_t)cmd[7] << 8) | cmd[8], cmd[9]);
+        else last_err = 1;
+        break;
+
+    case CMD_BLIT_DATA:
+        /* [0x06, <=64 bytes of 1bpp rows] */
+        if (n >= 2) gpu_blit_data((const uint8_t *)&cmd[1], (uint8_t)(n - 1));
         else last_err = 1;
         break;
 
