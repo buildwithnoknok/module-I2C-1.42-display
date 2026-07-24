@@ -132,6 +132,15 @@
  *   (0,62) / (80,0)  one axis centred, the other not
  *   (0,24) / (24,24) small-offset variants
  * Add or reorder freely — the tally blinks/dots follow the array. */
+/* ── ANSWER (bench-confirmed Jul 23 2026) ─────────────────────────────────
+ * Candidate 3 aligned perfectly on real hardware: complete border on all four
+ * edges, all four corner squares visible. The 80x160 visible window sits at
+ * (24, 0) in the NV3022B's GRAM. Set OFFSET_CONFIRMED to 1 to skip the sweep
+ * and draw a colour-verification pattern at that offset instead. */
+#define OFFSET_CONFIRMED  1
+#define CONFIRMED_X_OFF   24
+#define CONFIRMED_Y_OFF   0
+
 typedef struct { uint8_t x, y; } offset_t;
 
 static const offset_t candidates[] = {
@@ -260,6 +269,34 @@ static const uint8_t nv3022b_init_seq[] = {
     0x29, DLY | 0, 20,                   /* DISPON  + 20 ms                  */
     0x00                                 /* terminator                        */
 };
+
+/* ── Init selection ───────────────────────────────────────────────────────
+ * BENCH RESULT (Jul 23 2026): the generic NV3022B vendor table below produced
+ * a completely dead screen on every board, while a MINIMAL five-command init
+ * produced a picture immediately. Those ~30 undocumented vendor registers are
+ * for a different panel and evidently leave this controller unusable.
+ * So the minimal init is the default until EastRising supply the real one.
+ *   1 = minimal (SWRESET/SLPOUT/COLMOD/MADCTL/DISPON)  ← proven to work
+ *   0 = the generic vendor table                        ← proven NOT to work */
+#define USE_MINIMAL_INIT  1
+
+static void lcd_init_minimal(void)
+{
+    lcd_cmd(0x01);                     /* SWRESET */
+    Delay_Ms(150);
+    lcd_cmd(0x11);                     /* SLPOUT  */
+    Delay_Ms(200);
+    lcd_cmd(0x3A); lcd_data(COLMOD_VALUE);
+    lcd_cmd(0x36); lcd_data(MADCTL_VALUE);
+    spi_wait_idle();
+    /* INVON — display inversion ON. BENCH RESULT: without this the panel
+     * renders every colour inverted (navy background came out bright yellow,
+     * white dots came out black). Normal for an IPS cell of this type; it is
+     * NOT a wiring or byte-order problem. */
+    lcd_cmd(0x21);
+    lcd_cmd(0x29);                     /* DISPON  */
+    Delay_Ms(20);
+}
 
 static void lcd_run_init_table(const uint8_t *p)
 {
@@ -442,10 +479,47 @@ int main(void)
     RES_HIGH();
     Delay_Ms(150);                        /* NV3022B needs >120 ms after RES  */
 
+#if USE_MINIMAL_INIT
+    lcd_init_minimal();
+#else
     lcd_run_init_table(nv3022b_init_seq);
+#endif
 
     backlight_ramp(0, BL_NORMAL, 200);
 
+#if OFFSET_CONFIRMED
+    /* ── Offset is known — draw a colour-verification pattern instead ─────
+     * BENCH RESULT Jul 23 2026: candidate 3 aligned perfectly on hardware,
+     * so the 80x160 window sits at (24, 0) in the controller's GRAM. */
+    x_off = CONFIRMED_X_OFF;
+    y_off = CONFIRMED_Y_OFF;
+
+    fill_rect(0, 0, PANEL_W, PANEL_H, NAVY);
+
+    /* 2 px white border — should be WHITE, and complete on all four edges */
+    fill_rect(0,           0,           PANEL_W, 2, WHITE);
+    fill_rect(0,           PANEL_H - 2, PANEL_W, 2, WHITE);
+    fill_rect(0,           0,           2, PANEL_H, WHITE);
+    fill_rect(PANEL_W - 2, 0,           2, PANEL_H, WHITE);
+
+    /* Corner squares: red TL, green TR, yellow BL, cyan BR */
+    fill_rect(4,            4,            12, 12, RED);
+    fill_rect(PANEL_W - 16, 4,            12, 12, GREEN);
+    fill_rect(4,            PANEL_H - 16, 12, 12, YELLOW);
+    fill_rect(PANEL_W - 16, PANEL_H - 16, 12, 12, CYAN);
+
+    /* Colour bars down the middle — the definitive colour check. Top to
+     * bottom: red, green, blue, white, black, yellow, cyan, magenta. */
+    {
+        static const uint16_t bars[8] = {
+            RED, GREEN, BLUE, WHITE, BLACK, YELLOW, CYAN, 0xF81F /* magenta */
+        };
+        for (idx = 0; idx < 8; idx++)
+            fill_rect(20, 30 + idx * 12, PANEL_W - 40, 10, bars[idx]);
+    }
+
+    for (;;) { Delay_Ms(1000); }
+#else
     /* ── PHASE 2: sweep the candidate offsets forever ────────────────────── */
     for (;;) {
         idx = (idx + 1);
@@ -458,4 +532,5 @@ int main(void)
         draw_test_pattern(idx);
         Delay_Ms(3000);
     }
+#endif
 }
