@@ -90,7 +90,9 @@
 #define CMD_BLIT_BEGIN       0x05
 #define CMD_BLIT_DATA        0x06
 #define CMD_SET_BACKLIGHT    0x10
+#define CMD_SET_ROTATION     0x11
 #define CMD_DISPLAY          0x12
+#define CMD_SET_ORIENT       0x14   /* bench calibration: raw MADCTL + offsets */
 #define CMD_GET_INFO         0x15
 #define CMD_ENTER_BOOTLOADER 0xB0
 #define CMD_GET_VERSION      0xB1
@@ -168,6 +170,18 @@ static volatile uint8_t tx_idx = 0;
 static volatile uint8_t gpu_busy  = 0;   /* 1 while an SPI draw is running   */
 static volatile uint8_t last_err  = 0;
 
+/* ── Live orientation state ──────────────────────────────────────────────
+ * Geometry is RUNTIME state, not compile-time constants, because the mapping
+ * between MADCTL and the GRAM offset cannot be calculated: flipping MX/MY
+ * remaps column/row addresses against a controller RAM width we do not know.
+ * It has to be measured. SET_ROTATION applies a best-guess table; SET_ORIENT
+ * lets the bench set MADCTL and the offsets directly so the right combination
+ * can be found live, the same way the original (24,0) offset was found. */
+static uint8_t g_w    = PANEL_W;
+static uint8_t g_h    = PANEL_H;
+static uint8_t g_xoff = GRAM_X_OFF;
+static uint8_t g_yoff = GRAM_Y_OFF;
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * CRC8  (poly 0x07, init 0x00) — identical to every other noknok module
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -232,14 +246,15 @@ static void build_version_response(void)
 }
 
 /* [width, height, colour_depth_code, n_fonts, n_icons]
- * depth_code 0x10 = RGB565. Fonts and icons are 0 until stage 2. */
+ * depth_code 0x10 = RGB565. Width/height are the CURRENT orientation, so the
+ * host sees 160x80 after a landscape SET_ROTATION without hard-coding anything. */
 static void build_info_response(void)
 {
-    tx_buf[0] = PANEL_W;
-    tx_buf[1] = PANEL_H;
+    tx_buf[0] = g_w;
+    tx_buf[1] = g_h;
     tx_buf[2] = 0x10;
-    tx_buf[3] = 0;
-    tx_buf[4] = 0;
+    tx_buf[3] = 1;   /* one built-in font: 8x8 monospace */
+    tx_buf[4] = 0;   /* icons are a later stage          */
     tx_len = 5;
     tx_idx = 0;
 }
@@ -320,9 +335,9 @@ static void gpu_fill_rect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t c
     uint32_t n;
     uint8_t  hi = c >> 8, lo = c & 0xFF;
 
-    if (x >= PANEL_W || y >= PANEL_H || w == 0 || h == 0) { last_err = 3; return; }
-    if (x + w > PANEL_W) w = PANEL_W - x;
-    if (y + h > PANEL_H) h = PANEL_H - y;
+    if (x >= g_w || y >= g_h || w == 0 || h == 0) { last_err = 3; return; }
+    if (x + w > g_w) w = (uint8_t)(g_w - x);
+    if (y + h > g_h) h = (uint8_t)(g_h - y);
 
     gpu_busy = 1;
     gpu_window(x, y, w, h);
@@ -332,7 +347,7 @@ static void gpu_fill_rect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t c
     gpu_busy = 0;
 }
 
-static void gpu_clear(uint16_t c) { gpu_fill_rect(0, 0, PANEL_W, PANEL_H, c); }
+static void gpu_clear(uint16_t c) { gpu_fill_rect(0, 0, g_w, g_h, c); }
 
 /* ── Text ────────────────────────────────────────────────────────────────
  * Monospace 8x8 base font scaled by an integer 1-4, giving native heights
@@ -357,7 +372,7 @@ static void gpu_draw_glyph(uint8_t x, uint8_t y, uint8_t ch, uint8_t scale,
     if (ch < FONT8X8_FIRST || ch > FONT8X8_LAST) ch = '?';
     rows = font8x8[ch - FONT8X8_FIRST];
 
-    if (x >= PANEL_W || y >= PANEL_H) return;
+    if (x >= g_w || y >= g_h) return;
 
     if (transparent) {
         for (uint8_t r = 0; r < FONT8X8_H; r++) {
@@ -372,7 +387,7 @@ static void gpu_draw_glyph(uint8_t x, uint8_t y, uint8_t ch, uint8_t scale,
     }
 
     /* Opaque: one window for the whole cell, pixels streamed row by row. */
-    if (x + cell > PANEL_W || y + cell > PANEL_H) {
+    if (x + cell > g_w || y + cell > g_h) {
         /* Would overflow the panel — fall back to the clipped per-pixel path
          * so a glyph at the edge degrades instead of corrupting the window. */
         for (uint8_t r = 0; r < FONT8X8_H; r++) {
@@ -421,8 +436,8 @@ static uint8_t  blit_x0 = 0, blit_y0 = 0, blit_row = 0;
 static void gpu_blit_begin(uint8_t x, uint8_t y, uint8_t w, uint8_t h,
                            uint16_t fg, uint16_t bg, uint8_t flags)
 {
-    if (x >= PANEL_W || y >= PANEL_H || w == 0 || h == 0
-        || x + w > PANEL_W || y + h > PANEL_H) { last_err = 3; blit_pixels_left = 0; return; }
+    if (x >= g_w || y >= g_h || w == 0 || h == 0
+        || x + w > g_w || y + h > g_h) { last_err = 3; blit_pixels_left = 0; return; }
 
     blit_fg = fg; blit_bg = bg;
     blit_transparent = flags & 1u;
@@ -693,7 +708,7 @@ static void process_command(void)
 
             for (uint8_t i = 8; i < n; i++) {
                 uint8_t cx = (uint8_t)(x + (i - 8) * FONT8X8_W * scale);
-                if (cx >= PANEL_W) break;          /* ran off the edge */
+                if (cx >= g_w) break;              /* ran off the edge */
                 gpu_draw_glyph(cx, y, cmd[i], scale, fg, bg, trans);
             }
         } else last_err = 1;
@@ -712,6 +727,51 @@ static void process_command(void)
         /* [0x06, <=64 bytes of 1bpp rows] */
         if (n >= 2) gpu_blit_data((const uint8_t *)&cmd[1], (uint8_t)(n - 1));
         else last_err = 1;
+        break;
+
+    case CMD_SET_ROTATION:
+        /* [0x11, rot 0-3]  0/2 = portrait 80x160, 1/3 = landscape 160x80.
+         * The MADCTL values are certain; the OFFSETS for anything other than
+         * rotation 0 are educated guesses, because the controller's true RAM
+         * width is unknown. Use SET_ORIENT (0x14) to dial them in, then move
+         * the confirmed numbers into this table. */
+        if (n >= 2) {
+            static const uint8_t rot_madctl[4] = {
+                0x00,        /* 0   portrait                */
+                0x60,        /* 90  MV | MX                 */
+                0xC0,        /* 180 MY | MX                 */
+                0xA0         /* 270 MV | MY                 */
+            };
+            uint8_t rot = cmd[1] & 0x03;
+
+            /* The rescued rev 1.0 boards carry a physically 180-rotated panel,
+             * so add 180 to whatever the host asked for. */
+#if PANEL_ROTATED_REWORK
+            rot = (uint8_t)((rot + 2) & 0x03);
+#endif
+            lcd_cmd(0x36); lcd_dat(rot_madctl[rot]);
+            spi_idle();
+
+            if (rot & 1u) { g_w = PANEL_H; g_h = PANEL_W;    /* landscape */
+                            g_xoff = GRAM_Y_OFF; g_yoff = GRAM_X_OFF; }
+            else          { g_w = PANEL_W; g_h = PANEL_H;    /* portrait  */
+                            g_xoff = GRAM_X_OFF; g_yoff = GRAM_Y_OFF; }
+        } else last_err = 1;
+        break;
+
+    case CMD_SET_ORIENT:
+        /* [0x14, madctl, xoff, yoff, w, h] — raw bench calibration.
+         * Sets MADCTL and the geometry directly so the right combination can be
+         * found live on the bench, exactly how the original (24,0) offset was
+         * found. Not meant for product code; SET_ROTATION is the real API. */
+        if (n >= 6) {
+            lcd_cmd(0x36); lcd_dat(cmd[1]);
+            spi_idle();
+            g_xoff = cmd[2];
+            g_yoff = cmd[3];
+            g_w    = cmd[4] ? cmd[4] : 1;
+            g_h    = cmd[5] ? cmd[5] : 1;
+        } else last_err = 1;
         break;
 
     case CMD_SET_BACKLIGHT:
