@@ -6,12 +6,12 @@
  * CH32V003F4U6 (QFN-20)  |  Stack: cnlohr/ch32fun
  *
  * A real noknok I2C module: enumeration, the standard system commands, drawing
- * primitives, a built-in 8x8 monospace font (ASCII, integer-scaled 1-4) and the
+ * primitives, a built-in 8x8 monospace font (ASCII, integer-scaled 1-8) and the
  * 1bpp host-blit path. Icons and a second larger font are still to come.
  *
  * TEXT SIZING — the agreed split. The module renders the NATIVE heights only
- * (8/16/24/32 = the 8x8 font at scale 1-4). Any other size, and any nicer
- * typeface, is rasterised on the Pico and sent as a 1bpp blit. noknok.py picks
+ * (8/16/24/32/40/48/56/64 = the 8x8 font at scale 1-8). Any other size, and any
+ * nicer typeface, is rasterised on the Pico and sent as a 1bpp blit. noknok.py picks
  * the path automatically, so `size` is always an exact pixel height and there
  * is never a "size not supported" error.
  *
@@ -44,7 +44,8 @@
  *     [0x01, colHi, colLo]                        CLEAR to colour
  *     [0x02, x, y, w, h, colHi, colLo]            FILL_RECT
  *     [0x03, x, y, style, fgHi,fgLo, bgHi,bgLo, ascii...]   DRAW_TEXT
- *              style: bits0-2 scale 1-4, bit3 transparent bg, bits4-5 font id
+ *              style: bits0-1 font id, bits2-4 (scale-1) => scale 1-8,
+ *                     bit7 transparent background
  *     [0x05, x, y, w, h, fgHi,fgLo, bgHi,bgLo, flags]       BLIT_BEGIN (1bpp)
  *     [0x06, <=64 bytes of 1bpp rows]                       BLIT_DATA (repeat)
  *     [0x10, level]                               SET_BACKLIGHT (0-255)
@@ -415,6 +416,7 @@ static uint8_t  blit_transparent = 0;
 static uint32_t blit_pixels_left = 0;
 static uint8_t  blit_row_bytes = 0, blit_row_pos = 0;
 static uint8_t  blit_w = 0;
+static uint8_t  blit_x0 = 0, blit_y0 = 0, blit_row = 0;
 
 static void gpu_blit_begin(uint8_t x, uint8_t y, uint8_t w, uint8_t h,
                            uint16_t fg, uint16_t bg, uint8_t flags)
@@ -427,8 +429,13 @@ static void gpu_blit_begin(uint8_t x, uint8_t y, uint8_t w, uint8_t h,
     blit_w = w;
     blit_row_bytes = (uint8_t)((w + 7) / 8);
     blit_row_pos = 0;
+    blit_row = 0;
+    blit_x0 = x; blit_y0 = y;
     blit_pixels_left = (uint32_t)w * h;
 
+    /* Opaque blits stream into one window. A transparent blit cannot: with no
+     * local framebuffer we cannot read back the background, so each set pixel
+     * has to be placed individually (see gpu_blit_data). */
     if (!blit_transparent) gpu_window(x, y, w, h);
 }
 
@@ -444,12 +451,18 @@ static void gpu_blit_data(const uint8_t *data, uint8_t n)
         for (int8_t b = 7; b >= 0 && blit_pixels_left; b--) {
             /* Skip the padding bits at the end of each row. */
             if (blit_row_pos >= blit_w) break;
-            uint16_t c = ((bits >> b) & 1u) ? blit_fg : blit_bg;
-            spi_tx(c >> 8); spi_tx(c & 0xFF);
+            uint8_t on = (bits >> b) & 1u;
+            if (blit_transparent) {
+                if (on) gpu_fill_rect((uint8_t)(blit_x0 + blit_row_pos),
+                                      (uint8_t)(blit_y0 + blit_row), 1, 1, blit_fg);
+            } else {
+                uint16_t c = on ? blit_fg : blit_bg;
+                spi_tx(c >> 8); spi_tx(c & 0xFF);
+            }
             blit_row_pos++;
             blit_pixels_left--;
         }
-        if (blit_row_pos >= blit_w) blit_row_pos = 0;      /* next row */
+        if (blit_row_pos >= blit_w) { blit_row_pos = 0; blit_row++; }   /* next row */
     }
     spi_idle();
     gpu_busy = 0;
@@ -670,13 +683,13 @@ static void process_command(void)
          *        bits 4-5 = font index (only 0 = 8x8 exists today). */
         if (n >= 9) {
             uint8_t  x     = cmd[1], y = cmd[2];
-            uint8_t  scale = cmd[3] & 0x07;
-            uint8_t  trans = (cmd[3] >> 3) & 1u;
+            uint8_t  scale = (uint8_t)(((cmd[3] >> 2) & 0x07) + 1);
+            uint8_t  trans = (cmd[3] >> 7) & 1u;
             uint16_t fg    = ((uint16_t)cmd[4] << 8) | cmd[5];
             uint16_t bg    = ((uint16_t)cmd[6] << 8) | cmd[7];
+            /* font index = cmd[3] bits 0-1; only 0 (8x8) exists today */
 
-            if (scale < 1) scale = 1;
-            if (scale > 4) scale = 4;
+            if (scale > 8) scale = 8;   /* scale 1-8 -> heights 8..64 */
 
             for (uint8_t i = 8; i < n; i++) {
                 uint8_t cx = (uint8_t)(x + (i - 8) * FONT8X8_W * scale);
