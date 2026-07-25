@@ -89,12 +89,52 @@ Symbols & footprints live in the **Ecosystem** repo (`electrical/noknok.kicad_sy
   the fold geometry is confirmed.
 - `noknok_UART_debug_1x3_pogo`, `noknok_FlashPads_I2C-module_1x3_M2.5`, `noknok_MountingHole`
 
-## Firmware (TODO)
+## Firmware
 
-- NV3022B init sequence + the **80×160 column/row offset**
-- GPU command set: clear / draw text / draw icon / **blit (host bitmap)** / contrast / backlight PWM
-- 1bpp asset rendering + colour tint at draw time; host-blit protocol for the long tail of assets
-- Enumeration (**MODULE_TYPE = 0x05**), GET_VERSION, bootloader-relink @ 0x1000 + 0xB0 handler
+Source in `firmware/src/`, distributable OTA image in `firmware/bin/`. Linked at `0x1000` to
+run under the shared noknok I2C bootloader; flashed over I2C, not SWD.
+
+### Changelog
+
+Every release from **v0.4.0 onwards must add an entry here before the binary is committed.**
+Entries below v0.4.0 were written retrospectively.
+
+#### v0.3.0 — 23 Jul 2026
+- `SET_ROTATION` (0x11) and `SET_ORIENT` (0x14). Panel geometry and GRAM offsets became
+  **runtime state** rather than compile-time constants, so clipping, `GET_INFO` and the blit
+  bounds all follow the current orientation.
+- `SET_ORIENT` is a bench calibrator taking a raw MADCTL plus offsets: the MADCTL values are
+  certain but the offsets for any rotation other than 0 are unknown, because the controller's
+  true GRAM width is undocumented.
+- Version bumped purely so the orientation build is distinguishable from v0.2.0 over
+  `GET_VERSION` — v0.2.0 shipped twice with different command sets, which was a mistake.
+
+#### v0.2.0 — 23 Jul 2026
+- Built-in **8×8 monospace font**, ASCII 0x20–0x7E (760 bytes), generated from the
+  public-domain `dhepper/font8x8`. Bit order is LSB-first (bit 0 = leftmost).
+- `DRAW_TEXT` (0x03) with integer scale 1–8 → native heights 8/16/24/32/40/48/56/64.
+- `BLIT_BEGIN` (0x05) / `BLIT_DATA` (0x06): 1bpp host-rendered assets streamed in ≤64-byte
+  chunks and expanded to RGB565 on arrival — the CH32V003 cannot buffer a bitmap in 2 KB.
+- Style-byte layout aligned with `noknok.py`; transparent blit fixed (it previously streamed
+  pixels without opening a window).
+- `GET_INFO` corrected to report 1 built-in font.
+
+#### v0.1.0 — 23 Jul 2026
+- First real module firmware. Enumeration as **MODULE_TYPE 0x05**, `GET_VERSION` (0xB1),
+  `ENTER_BOOTLOADER` (0xB0), `GET_INFO` (0x15).
+- GPU: hardware SPI, minimal DCS init, `INVON`, GRAM offset (24, 0), clipped `CLEAR` and
+  `FILL_RECT`, backlight PWM with a soft-start ramp, boot splash.
+- Command processor snapshots `rx_buf` before drawing — a full-screen fill is ~35 ms of SPI and
+  the I2C ISR can land the next command mid-draw.
+
+### Known gaps
+
+- **Text renders mirrored** on the rescued rev 1.0 boards — under investigation; `MX` appears
+  not to be honoured by this controller, so the physical 180° panel rotation is only half
+  cancelled. Use `SET_ORIENT` to find the right MADCTL.
+- Rotation offsets for anything other than rotation 0 are guesses.
+- Icons and a second (larger) font are not implemented.
+- The status LED is not driven — PD1/SWIO does not work (Jira DEV-20).
 
 ## Status / next steps
 
