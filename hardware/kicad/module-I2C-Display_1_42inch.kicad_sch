@@ -4052,6 +4052,16 @@
 	)
 	(wire
 		(pts
+			(xy 132.08 107.95) (xy 157.48 107.95)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "14e1f7ec-42f0-4167-b439-6e6d30eb278c")
+	)
+	(wire
+		(pts
 			(xy 234.95 104.14) (xy 224.79 104.14)
 		)
 		(stroke
@@ -4552,16 +4562,6 @@
 	)
 	(wire
 		(pts
-			(xy 132.08 105.41) (xy 132.08 116.84)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "78db7788-82ce-47d9-94fa-9df668619954")
-	)
-	(wire
-		(pts
 			(xy 247.65 58.42) (xy 257.81 58.42)
 		)
 		(stroke
@@ -4569,6 +4569,16 @@
 			(type default)
 		)
 		(uuid "7b357868-6b97-456e-beb0-dca1c9052d5f")
+	)
+	(wire
+		(pts
+			(xy 157.48 105.41) (xy 129.54 105.41)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7de2ca5c-df37-44d7-bcc4-fa3b0c8c83b5")
 	)
 	(wire
 		(pts
@@ -4702,7 +4712,7 @@
 	)
 	(wire
 		(pts
-			(xy 129.54 107.95) (xy 129.54 114.3)
+			(xy 129.54 105.41) (xy 129.54 114.3)
 		)
 		(stroke
 			(width 0)
@@ -4792,6 +4802,16 @@
 	)
 	(wire
 		(pts
+			(xy 132.08 107.95) (xy 132.08 116.84)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "95c73dce-2b9c-4cac-9a13-72d0ee01d4b1")
+	)
+	(wire
+		(pts
 			(xy 60.96 138.43) (xy 60.96 140.97)
 		)
 		(stroke
@@ -4829,16 +4849,6 @@
 			(type default)
 		)
 		(uuid "a170bee4-a449-4861-a847-4ead1a6a8594")
-	)
-	(wire
-		(pts
-			(xy 157.48 105.41) (xy 132.08 105.41)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "a20d9f26-e9a6-40f8-a9c2-2a9f7a810aaf")
 	)
 	(wire
 		(pts
@@ -4929,16 +4939,6 @@
 			(type default)
 		)
 		(uuid "ac1d05f4-6bbf-4647-83e7-b05212503385")
-	)
-	(wire
-		(pts
-			(xy 157.48 107.95) (xy 129.54 107.95)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ae0c3a89-48ed-4f0e-9f0e-f41e50b60418")
 	)
 	(wire
 		(pts
@@ -12234,7 +12234,7 @@
 				)
 			)
 		)
-		(property "Value" "2N7002"
+		(property "Value" "2N7002 or AO3400A (pin2pin)"
 			(at 64.77 111.76 90)
 			(show_name no)
 			(do_not_autoplace no)
