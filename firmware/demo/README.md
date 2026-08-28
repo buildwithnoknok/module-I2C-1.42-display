@@ -7,48 +7,68 @@ runs forever on a seamless loop.
 
 Runs the panel **landscape (160×80)**.
 
-## The loop (~7.9 s)
+## The loop (~13.5 s)
 
 | | | |
 |---|---|---|
 | 1 | Black, backlight off | 0.25 s |
 | 2 | **noknok** wordmark, white + purple, backlight fades up | 0.98 s |
 | 3 | Fade down, clear, fade back up | 0.42 s |
-| 4 | `Hello, World!` types out character by character | 0.91 s |
-| 5 | Block cursor blinks after it | 1.40 s |
-| 6 | Beat, wipe to black | 0.29 s |
-| 7 | Matrix-homage boot log types out in green | 2.28 s |
-| 8 | Closing line in brand purple, cursor blinking | 1.08 s |
-| 9 | Backlight fades out → back to step 1 | 0.35 s |
+| 4 | One continuous terminal session, scrolling | ~11.5 s |
+| 5 | Backlight fades out → back to step 1 | 0.65 s |
+
+The session is the whole show. `Hello, World!` is simply its first line;
+every line after it arrives as if Enter had been pressed, the cursor blinks
+where it lands, and the window scrolls once the panel is full.
+
+```
+Hello, World!        white
+wake up,             green
+maker...
+the modules
+have you.
+do not follow
+the white
+rabbit.
+> follow             brand purple
+noknok_
+```
 
 Two typing speeds on purpose: `Hello, World!` is slow and ceremonial at
-70 ms/char, the boot log is fast and urgent at 22 ms/char.
+70 ms/char, the feed that follows is faster and more urgent at 45 ms/char.
 
-The feed reads:
+### Why it scrolls
 
-```
-wake up, maker...
-the modules have you.
-don't follow the
-white rabbit.
-> follow noknok_          <- brand purple
-```
+At 16 px text the panel holds **four** rows (4 x 18 px pitch = 72 of 80), and
+every line of copy is wider than the 160 px panel:
 
-**No scrolling is involved.** `don't follow the white rabbit.` is 183 px
-against a 156 px usable width so it wraps, but the wrapped total is only 5 rows
-and 5 x 10 px pitch fits the 80 px panel with room to spare — the feed just
-types down the screen, which reads as a boot log anyway. That is worth having:
-the panel is framebuffer-less, and the controller's hardware vertical scroll
-runs along the panel's native axis, which the `MV` bit has turned into the
-screen's HORIZONTAL axis — so a scroll would mean a full redraw of every line,
-~50 ms of visible flicker per step.
+| Line | Width | |
+|---|---|---|
+| `Hello, World!` | 144 px | fits |
+| `wake up, maker...` | 192 px | wraps |
+| `the modules have you.` | 248 px | wraps |
+| `do not follow the white rabbit.` | 348 px | wraps |
+| `> follow noknok` | 174 px | wraps |
 
-The wrap is hard-coded rather than computed: it is fixed marketing copy, and
-hand-breaking it keeps `white rabbit.` intact on its own row instead of
-orphaning `rabbit.`, which a greedy wrapper would do.
+Wrapped, that is **ten rows through a four-row window** — so it scrolls six
+times. Scrolling is a full software redraw: the panel is framebuffer-less, and
+the controller's hardware vertical scroll runs along the panel's native axis,
+which the `MV` bit has turned into the screen's HORIZONTAL axis, so it is no
+use here.
+
+The redraw is deliberately **row-by-row rather than clear-then-redraw**. Each
+row band is overwritten in place — glyphs, then black out to the right edge,
+then the leading strip — so there is never an all-black frame. Clearing first
+costs the same ~50 ms but flashes the whole panel black for about one video
+frame, which the camera would catch.
+
+The wrap is hard-coded, not computed. It is fixed marketing copy, and hand
+breaking it keeps `rabbit.` and `noknok` on rows of their own rather than
+wherever a greedy wrapper would land. Giving `noknok` its own row with the
+blinking purple cursor under it is the better ending anyway.
 
 Step 1 leaves the panel black with the backlight already at zero — exactly the
-state step 9 hands over — so the loop point is invisible and the footage cuts
+state step 5 hands over — so the loop point is invisible and the footage cuts
 as a seamless reel.
 
 ## Build and flash
@@ -81,10 +101,10 @@ on them.
 | Purple looks blue | gamma, not encoding — see **Purple calibration** below; set `SWATCH_MODE 1` to re-pick |
 | Colours garbage | `COLMOD_VALUE` `0x55` instead of `0x05` |
 | Too bright (dark room) | `BL_FULL` — 250 = 25% duty; 150 very dim, 400 dim room, 999 full |
-| Typing too fast/slow | `TYPE_MS` (70 ms per character, the headline) |
+| Typing too fast/slow | `HEAD_MS` (70 ms, the headline) / `TERM_MS` (45 ms, the feed) |
 | Cursor blinks too fast | `BLINK_MS` / `BLINK_COUNT` |
-| Boot log too fast/slow | `TERM_MS` (22 ms/char), `TERM_PAUSE` (beat between lines) |
-| Boot log text or wrap | `term_lines[]` — hard-wrapped, keep each row under 156 px |
+| Enter / wrap beats | `ENTER_MS` (220 ms), `WRAP_MS` (80 ms) |
+| Script text, wrap, colours, blinks | `script[]` — hard-wrapped; keep each row under 144 px so the cursor fits |
 
 
 ## Purple calibration — why the brand colour is not the brand value
