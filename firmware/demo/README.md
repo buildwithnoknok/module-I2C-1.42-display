@@ -7,14 +7,14 @@ runs forever on a seamless loop.
 
 Runs the panel **landscape (160×80)**.
 
-## The loop (~13.5 s)
+## The loop (~16 s)
 
 | | | |
 |---|---|---|
 | 1 | Black, backlight off | 0.25 s |
 | 2 | **noknok** wordmark, white + purple, backlight fades up | 0.98 s |
 | 3 | Fade down, clear, fade back up | 0.42 s |
-| 4 | One continuous terminal session, scrolling | ~11.5 s |
+| 4 | One continuous terminal session, centred then scrolling | ~14 s |
 | 5 | Backlight fades out → back to step 1 | 0.65 s |
 
 The session is the whole show. `Hello, World!` is simply its first line;
@@ -22,22 +22,38 @@ every line after it arrives as if Enter had been pressed, the cursor blinks
 where it lands, and the window scrolls once the panel is full.
 
 ```
-Hello, World!        white
-wake up,             green
+Hello, World!
+wake up,
 maker...
 the modules
 have you.
 do not follow
 the white
 rabbit.
-> follow             brand purple
-noknok_
+> follow
+noknok_              <- nok white + nok purple, the logo colourway
 ```
 
-Two typing speeds on purpose: `Hello, World!` is slow and ceremonial at
-70 ms/char, the feed that follows is faster and more urgent at 45 ms/char.
+All white except the closing word, which is drawn in the logo's own
+colourway. Two typing speeds on purpose: `Hello, World!` is slow and
+ceremonial at 70 ms/char, the feed that follows is faster at 45 ms/char.
+Every sentence ends on the same two blink cycles, so the pauses are even.
 
-### Why it scrolls
+### Centred, then scrolling
+
+The text block stays **vertically centred while it grows**. With one row on
+screen that row sits dead centre — exactly where the old standalone headline
+was — and as rows are added the block expands symmetrically about the centre.
+Once it fills the panel the geometry locks and the window scrolls instead:
+
+| Rows on screen | 1 | 2 | 3 | 4 and after |
+|---|---|---|---|---|
+| Top of block | y=32 | y=23 | y=14 | y=5 (locked, scrolls) |
+
+So the piece opens centred and eases into scrolling rather than snapping from
+a centred headline to a top-anchored feed.
+
+### Why it scrolls at all
 
 At 16 px text the panel holds **four** rows (4 x 18 px pitch = 72 of 80), and
 every line of copy is wider than the 160 px panel:
@@ -50,22 +66,21 @@ every line of copy is wider than the 160 px panel:
 | `do not follow the white rabbit.` | 348 px | wraps |
 | `> follow noknok` | 174 px | wraps |
 
-Wrapped, that is **ten rows through a four-row window** — so it scrolls six
-times. Scrolling is a full software redraw: the panel is framebuffer-less, and
-the controller's hardware vertical scroll runs along the panel's native axis,
-which the `MV` bit has turned into the screen's HORIZONTAL axis, so it is no
-use here.
+Wrapped, that is **ten rows through a four-row window**. Scrolling is a full
+software redraw: the panel is framebuffer-less, and the controller's hardware
+vertical scroll runs along the panel's native axis, which the `MV` bit has
+turned into the screen's HORIZONTAL axis, so it is no use here. Every push
+repaints anyway, because a growing centred block moves every row.
 
-The redraw is deliberately **row-by-row rather than clear-then-redraw**. Each
-row band is overwritten in place — glyphs, then black out to the right edge,
-then the leading strip — so there is never an all-black frame. Clearing first
-costs the same ~50 ms but flashes the whole panel black for about one video
+The repaint covers all 80 rows band by band — top margin, each row, bottom
+margin — rather than clearing first and drawing back. Both cost about the same
+~50 ms, but clearing flashes the whole panel black for roughly one video
 frame, which the camera would catch.
 
 The wrap is hard-coded, not computed. It is fixed marketing copy, and hand
 breaking it keeps `rabbit.` and `noknok` on rows of their own rather than
 wherever a greedy wrapper would land. Giving `noknok` its own row with the
-blinking purple cursor under it is the better ending anyway.
+blinking cursor under it is the better ending anyway.
 
 Step 1 leaves the panel black with the backlight already at zero — exactly the
 state step 5 hands over — so the loop point is invisible and the footage cuts
@@ -104,7 +119,7 @@ on them.
 | Typing too fast/slow | `HEAD_MS` (70 ms, the headline) / `TERM_MS` (45 ms, the feed) |
 | Cursor blinks too fast | `BLINK_MS` / `BLINK_COUNT` |
 | Enter / wrap beats | `ENTER_MS` (220 ms), `WRAP_MS` (80 ms) |
-| Script text, wrap, colours, blinks | `script[]` — hard-wrapped; keep each row under 144 px so the cursor fits |
+| Script text, wrap, blinks, colour split | `script[]` — hard-wrapped; keep each row under 144 px so the cursor fits |
 
 
 ## Purple calibration — why the brand colour is not the brand value

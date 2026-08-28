@@ -497,40 +497,47 @@ static void draw_cursor(uint8_t x, uint8_t y, uint16_t c)
  * The whole piece is ONE terminal session: "Hello, World!" is just the first
  * line, and every line after it arrives as if Enter had been pressed.
  *
+ * THE BLOCK STAYS VERTICALLY CENTRED WHILE IT GROWS. With one row on screen
+ * that row sits dead centre, exactly where the old standalone headline was;
+ * as rows are added the block expands symmetrically about the centre, and
+ * once it fills the panel the geometry locks and the window scrolls instead:
+ *
+ *     rows on screen   1      2       3        4 and after
+ *     top of block    y=32   y=23    y=14     y=5  (locked, scrolls)
+ *
+ * So the piece opens centred and eases into scrolling rather than snapping
+ * from a centred headline to a top-anchored feed.
+ *
  * At 16 px text the panel holds FOUR rows (4 x 18 px pitch = 72 of 80), and
  * every line of copy is wider than the 160 px panel:
  *
  *     "Hello, World!"                   144 px   fits
  *     "wake up, maker..."               192 px   wraps
  *     "the modules have you."           248 px   wraps
- *     "do not follow the white rabbit."  348 px   wraps
+ *     "do not follow the white rabbit." 348 px   wraps
  *     "> follow noknok"                 174 px   wraps
  *
- * Wrapped, that is TEN rows through a four-row window, so this version really
- * does scroll — six times. Scrolling is a full software redraw: the panel is
- * framebuffer-less, and the controller's hardware vertical scroll runs along
- * the panel's native axis, which the MV bit has turned into the screen's
- * HORIZONTAL axis, so it is useless to us here.
+ * Wrapped, that is TEN rows through a four-row window, so this really does
+ * scroll. Scrolling is a full software redraw: the panel is framebuffer-less,
+ * and the controller's hardware vertical scroll runs along the panel's native
+ * axis, which the MV bit has turned into the screen's HORIZONTAL axis, so it
+ * is no use here. Every push repaints anyway, because a growing centred block
+ * moves every row.
  *
- * The redraw is deliberately row-by-row rather than clear-then-redraw. Each
- * row band is fully overwritten in place (glyphs, then black to the right
- * edge, then the leading strip), so there is never an all-black frame. A
- * clear-first redraw costs the same ~50 ms but flashes the whole panel black
- * for about one video frame, which the camera would catch.
+ * The repaint covers all 80 rows of the panel band by band — top margin, each
+ * row, bottom margin — rather than clearing first and drawing back. Both cost
+ * about the same ~50 ms, but clearing flashes the whole panel black for
+ * roughly one video frame, which the camera would catch.
  *
  * The wrap is hard-coded, not computed. It is fixed marketing copy, and hand
  * breaking it keeps "rabbit." and "noknok" on rows of their own rather than
  * wherever a greedy wrapper would land. Giving "noknok" its own row with the
- * blinking purple cursor under it is the better ending anyway.
+ * blinking cursor under it is the better ending anyway.
  */
 
 #define TROWS       4                /* visible rows                          */
 #define TROW_H      18               /* line pitch: 16 px text + 2 px leading */
 #define TERM_X0     3
-#define TERM_Y0     4                /* 4 rows -> last ends at 74 of 80       */
-
-#define TERM_GREEN  0x07E0           /* phosphor green — a full channel, so   */
-                                     /* the default gamma leaves it alone     */
 
 #define HEAD_MS     70               /* "Hello, World!" — slow, ceremonial    */
 #define TERM_MS     45               /* the feed — faster, more urgent        */
@@ -538,65 +545,89 @@ static void draw_cursor(uint8_t x, uint8_t y, uint16_t c)
 #define ENTER_MS    220              /* beat on the Enter press               */
 #define WRAP_MS     80               /* beat on a wrap continuation           */
 
+/* Everything is white. The one exception is the closing word, which is drawn
+ * in the logo's own colourway: "nok" white then "nok" brand purple, split at
+ * character 3. purple_from is the character index where the switch happens;
+ * NO_SPLIT is out of range for any real string, so the test never fires. */
+#define NO_SPLIT    0xFF
+
 typedef struct {
     const char *text;
     uint8_t     enter;               /* 1 = Enter precedes it (new line)      */
                                      /* 0 = wrap continuation of the previous */
     uint8_t     blinks;              /* cursor blink cycles after this row    */
-    uint16_t    fg;
+    uint8_t     purple_from;
 } ScriptRow;
 
 static const ScriptRow script[] = {
-    { "Hello, World!", 1, 2, WHITE         },   /* 144 px */
-    { "wake up,",      1, 0, TERM_GREEN    },   /*  99 px */
-    { "maker...",      0, 1, TERM_GREEN    },   /*  87 px */
-    { "the modules",   1, 0, TERM_GREEN    },   /* 136 px */
-    { "have you.",     0, 1, TERM_GREEN    },   /* 106 px */
-    { "do not follow", 1, 0, TERM_GREEN    },   /* 146 px */
-    { "the white",     0, 0, TERM_GREEN    },   /* 106 px */
-    { "rabbit.",       0, 1, TERM_GREEN    },   /*  84 px */
-    { "> follow",      1, 0, NOKNOK_PURPLE },   /*  87 px */
-    { "noknok",        0, 3, NOKNOK_PURPLE },   /*  81 px */
+    { "Hello, World!", 1, 2, NO_SPLIT },   /* 144 px */
+    { "wake up,",      1, 0, NO_SPLIT },   /*  99 px */
+    { "maker...",      0, 2, NO_SPLIT },   /*  87 px */
+    { "the modules",   1, 0, NO_SPLIT },   /* 136 px */
+    { "have you.",     0, 2, NO_SPLIT },   /* 106 px */
+    { "do not follow", 1, 0, NO_SPLIT },   /* 146 px */
+    { "the white",     0, 0, NO_SPLIT },   /* 106 px */
+    { "rabbit.",       0, 2, NO_SPLIT },   /*  84 px */
+    { "> follow",      1, 0, NO_SPLIT },   /*  87 px */
+    { "noknok",        0, 3, 3        },   /*  81 px, "nok" + "nok" */
 };
 #define SCRIPT_LEN  (sizeof(script) / sizeof(script[0]))
 
 typedef struct {
     const char *text;
     uint8_t     shown;               /* chars typed so far — a row mid-type   */
-                                     /* must not redraw its unwritten tail    */
-    uint16_t    fg;
+                                     /* must not repaint its unwritten tail   */
+    uint8_t     purple_from;
 } Row;
 
-static Row    rows[TROWS];
+static Row     rows[TROWS];
 static uint8_t row_count;
 static uint8_t cur_x, cur_y;         /* where the cursor sits right now       */
 
-/* Repaint one row band in place: glyphs, then black out to the right edge,
- * then the leading strip below. Never leaves the panel blank. */
-static void term_draw_row(uint8_t i)
+static uint16_t row_fg(const Row *r, uint8_t j)
 {
-    uint8_t y = (uint8_t)(TERM_Y0 + i * TROW_H);
+    return (j >= r->purple_from) ? NOKNOK_PURPLE : WHITE;
+}
+
+/* Top of the text block. Centred while it grows; at TROWS it works out to 5
+ * and stays there, which is where scrolling takes over. */
+static uint8_t term_y0(void)
+{
+    uint8_t h = (uint8_t)(row_count * TROW_H - (TROW_H - GLYPH_H));
+    return (uint8_t)((PANEL_H - h) / 2);
+}
+
+/* Repaint one row band in place: glyphs, then black out to the right edge,
+ * then the leading strip below. */
+static void term_draw_row(uint8_t i, uint8_t y0)
+{
+    uint8_t y = (uint8_t)(y0 + i * TROW_H);
     uint8_t x = TERM_X0;
 
     gpu_fill_rect(0, y, TERM_X0, GLYPH_H, BLACK);
-    if (i < row_count) {
-        const char *t = rows[i].text;
-        for (uint8_t j = 0; j < rows[i].shown; j++)
-            x = (uint8_t)(x + draw_char(x, y, t[j], MSG_SCALE, 0,
-                                        rows[i].fg, BLACK));
-    }
+    for (uint8_t j = 0; j < rows[i].shown; j++)
+        x = (uint8_t)(x + draw_char(x, y, rows[i].text[j], MSG_SCALE, 0,
+                                    row_fg(&rows[i], j), BLACK));
     if (x < PANEL_W) gpu_fill_rect(x, y, (uint8_t)(PANEL_W - x), GLYPH_H, BLACK);
     gpu_fill_rect(0, (uint8_t)(y + GLYPH_H), PANEL_W,
                   (uint8_t)(TROW_H - GLYPH_H), BLACK);
 }
 
+/* Repaints every one of the panel's 80 rows, so nothing is left behind when
+ * the block recentres or scrolls. Never leaves the panel blank. */
 static void term_redraw(void)
 {
-    for (uint8_t i = 0; i < TROWS; i++) term_draw_row(i);
+    uint8_t y0 = term_y0();
+    uint8_t bottom = (uint8_t)(y0 + row_count * TROW_H);
+
+    if (y0) gpu_fill_rect(0, 0, PANEL_W, y0, BLACK);
+    for (uint8_t i = 0; i < row_count; i++) term_draw_row(i, y0);
+    if (bottom < PANEL_H)
+        gpu_fill_rect(0, bottom, PANEL_W, (uint8_t)(PANEL_H - bottom), BLACK);
 }
 
 /* Open a new row, scrolling the window up if it is already full. */
-static void term_push(const char *text, uint16_t fg)
+static void term_push(const ScriptRow *s)
 {
     uint8_t i;
 
@@ -606,40 +637,41 @@ static void term_push(const char *text, uint16_t fg)
     } else {
         i = row_count++;
     }
-    rows[i].text  = text;
-    rows[i].shown = 0;
-    rows[i].fg    = fg;
+    rows[i].text        = s->text;
+    rows[i].shown       = 0;
+    rows[i].purple_from = s->purple_from;
 
-    /* Scrolling means every row moved, so the whole window is repainted.
-     * On a non-scrolling push only the new (empty) row needs clearing. */
-    if (row_count == TROWS && i == TROWS - 1) term_redraw();
-    else                                      term_draw_row(i);
+    term_redraw();               /* the block moved, so everything repaints */
 
-    cur_y = (uint8_t)(TERM_Y0 + i * TROW_H);
+    cur_y = (uint8_t)(term_y0() + i * TROW_H);
     cur_x = TERM_X0;
-    draw_cursor(cur_x, cur_y, fg);
+    draw_cursor(cur_x, cur_y, WHITE);
 }
 
 /* Type the current row out, carrying the cursor along with it. */
 static void term_type(uint8_t ms)
 {
-    uint8_t     i = (uint8_t)(row_count - 1);
-    const char *t = rows[i].text;
-    uint8_t     x = TERM_X0;
+    uint8_t i = (uint8_t)(row_count - 1);
+    uint8_t x = TERM_X0;
 
-    for (uint8_t j = 0; t[j]; j++) {
+    for (uint8_t j = 0; rows[i].text[j]; j++) {
+        uint16_t fg = row_fg(&rows[i], j);
+
         draw_cursor(cur_x, cur_y, BLACK);        /* lift the cursor */
-        x = (uint8_t)(x + draw_char(x, cur_y, t[j], MSG_SCALE, 0,
-                                    rows[i].fg, BLACK));
+        x = (uint8_t)(x + draw_char(x, cur_y, rows[i].text[j], MSG_SCALE, 0,
+                                    fg, BLACK));
         rows[i].shown = (uint8_t)(j + 1);
         cur_x = (uint8_t)(x + CURSOR_GAP);
-        draw_cursor(cur_x, cur_y, rows[i].fg);
+        draw_cursor(cur_x, cur_y, fg);           /* cursor takes the ink colour */
         Delay_Ms(ms);
     }
 }
 
-static void term_blink(uint8_t cycles, uint16_t fg)
+static void term_blink(uint8_t cycles)
 {
+    uint8_t  i  = (uint8_t)(row_count - 1);
+    uint16_t fg = row_fg(&rows[i], (uint8_t)(rows[i].shown - 1));
+
     for (uint8_t b = 0; b < cycles; b++) {
         Delay_Ms(BLINK_MS);
         draw_cursor(cur_x, cur_y, BLACK);
@@ -689,9 +721,9 @@ int main(void)
         /* ── 4. the session ────────────────────────────────────────────────────────────────────────────── */
         for (uint8_t i = 0; i < SCRIPT_LEN; i++) {
             Delay_Ms(script[i].enter ? ENTER_MS : WRAP_MS);
-            term_push(script[i].text, script[i].fg);
+            term_push(&script[i]);
             term_type(i == 0 ? HEAD_MS : TERM_MS);
-            if (script[i].blinks) term_blink(script[i].blinks, script[i].fg);
+            if (script[i].blinks) term_blink(script[i].blinks);
         }
 
         /* ── 5. fade out, hand back to step 1 ──────────────────────────────────────────────── */
