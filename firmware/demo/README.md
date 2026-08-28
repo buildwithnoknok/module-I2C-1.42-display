@@ -7,14 +7,14 @@ runs forever on a seamless loop.
 
 Runs the panel **landscape (160×80)**.
 
-## The loop (~16.3 s)
+## The loop (~15.5 s)
 
 | | | |
 |---|---|---|
 | 1 | Black, backlight off | 0.25 s |
 | 2 | **noknok** wordmark, white + purple, backlight fades up | 0.98 s |
 | 3 | Fade down, clear, fade back up | 0.42 s |
-| 4 | One continuous terminal session, centred then scrolling | ~14.3 s |
+| 4 | One continuous terminal session, centred then scrolling | ~13.5 s |
 | 5 | Backlight fades out → back to step 1 | 0.65 s |
 
 The session is the whole show. `Hello, World!` is simply its first line;
@@ -23,8 +23,7 @@ where it lands, and the window scrolls once the panel is full.
 
 ```
 Hello, World!
-wake up,
-maker...
+wake up...
 the world
 is going
 modular
@@ -62,12 +61,12 @@ every line of copy is wider than the 160 px panel:
 | Line | Width | |
 |---|---|---|
 | `Hello, World!` | 144 px | fits |
-| `wake up, maker...` | 192 px | wraps |
+| `wake up...` | 107 px | fits |
 | `the world is going modular` | 309 px | wraps |
 | `do not follow the white rabbit.` | 348 px | wraps |
 | `> follow noknok` | 174 px | wraps |
 
-Wrapped, that is **eleven rows through a four-row window**. Scrolling is a full
+Wrapped, that is **ten rows through a four-row window**. Scrolling is a full
 software redraw: the panel is framebuffer-less, and the controller's hardware
 vertical scroll runs along the panel's native axis, which the `MV` bit has
 turned into the screen's HORIZONTAL axis, so it is no use here. Every push

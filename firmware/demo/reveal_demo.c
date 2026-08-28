@@ -22,8 +22,7 @@
  * where it lands, and the window scrolls once the panel is full:
  *
  *     Hello, World!
- *     wake up,
- *     maker...
+ *     wake up...
  *     the world
  *     is going
  *     modular
@@ -513,12 +512,12 @@ static void draw_cursor(uint8_t x, uint8_t y, uint16_t c)
  * every line of copy is wider than the 160 px panel:
  *
  *     "Hello, World!"                   144 px   fits
- *     "wake up, maker..."               192 px   wraps
+ *     "wake up..."                      107 px   fits
  *     "the world is going modular"      309 px   wraps
  *     "do not follow the white rabbit." 348 px   wraps
  *     "> follow noknok"                 174 px   wraps
  *
- * Wrapped, that is ELEVEN rows through a four-row window, so this really does
+ * Wrapped, that is TEN rows through a four-row window, so this really does
  * scroll. Scrolling is a full software redraw: the panel is framebuffer-less,
  * and the controller's hardware vertical scroll runs along the panel's native
  * axis, which the MV bit has turned into the screen's HORIZONTAL axis, so it
@@ -562,8 +561,7 @@ typedef struct {
 
 static const ScriptRow script[] = {
     { "Hello, World!", 1, 2, NO_SPLIT },   /* 144 px */
-    { "wake up,",      1, 0, NO_SPLIT },   /*  99 px */
-    { "maker...",      0, 2, NO_SPLIT },   /*  87 px */
+    { "wake up...",    1, 2, NO_SPLIT },   /* 107 px, fits on one row */
     { "the world",     1, 0, NO_SPLIT },   /* 110 px */
     { "is going",      0, 0, NO_SPLIT },   /*  91 px */
     { "modular",       0, 2, NO_SPLIT },   /*  96 px */
