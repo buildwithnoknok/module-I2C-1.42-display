@@ -45,7 +45,8 @@ on them.
 
 | Symptom | Fix |
 |---|---|
-| Text upside down | flip `MADCTL_LANDSCAPE` between `0xA0` and `0x60` |
+| Image mirrored left-to-right | flip the MY bit: `MADCTL_LANDSCAPE` `0x20` <-> `0xE0` |
+| Image upside down | flip the MX bit: `MADCTL_LANDSCAPE` `0x20` <-> `0x60` |
 | Image shifted a few px up/down | nudge `LAND_Y_OFF` (24 assumes a 128-wide GRAM; a 132-wide one wants 26) |
 | Colours inverted | drop the `INVON` line in `gpu_init()` |
 | Colours garbage | `COLMOD_VALUE` `0x55` instead of `0x05` |
@@ -62,6 +63,13 @@ Every panel number is lifted verbatim from the bench-proven bring-up
 swaps with the `MV` bit to (0,24); 24 is the centre of a 128-wide GRAM, which
 makes it symmetric under the `MX`/`MY` mirror bits, so the value holds either
 way up.
+
+**Bench result, 28 Aug 2026 — this panel needs a non-canonical MADCTL.** Both
+canonical landscape rotations of the working portrait value `0xC0` — `0xA0`
+(MV|MY) and `0x60` (MV|MX) — come out **mirrored** left-to-right on a rescued
+board, not merely rotated. `0x20` (`0xA0` with MY cleared) is what renders
+correctly. Probably a rework artefact, so a correctly-fabbed board may well
+want a canonical value — recheck this on the respin.
 
 ## Why proportional text
 
