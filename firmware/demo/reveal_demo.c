@@ -12,8 +12,8 @@
  *
  * ── The loop (≈6 s) ─────────────────────────────────────────────────────────
  *   1. Black, backlight off                                        0.3 s
- *   2. Purple field + white "noknok" wordmark, backlight fades up   1.0 s hold
- *   3. Fade down, swap to black, fade back up                       0.4 s
+ *   2. noknok wordmark (white + purple), backlight fades up         1.0 s hold
+ *   3. Fade down, clear, fade back up                               0.35 s
  *   4. "Hello, World!" types out character by character             ~1.2 s
  *   5. Block cursor blinks after it                                 ~3.0 s
  *   6. Backlight fades to black -> back to step 1
@@ -46,16 +46,28 @@
 #include "ch32fun.h"
 #include <stdint.h>
 #include "font8x8.h"
+#include "wordmark.h"
 
 /* ══════════════════════════════════════════════════════════════════════════
  * PANEL
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/* Landscape. The rescued rev 1.0 boards carry a panel that was re-soldered
- * physically rotated 180 deg, so the landscape MADCTL is the 270 deg entry
- * (MV|MY) rather than the 90 deg one (MV|MX). Swap to 0x60 if it films
- * upside down. */
-#define MADCTL_LANDSCAPE 0xA0
+/* Landscape.
+ *
+ * BENCH RESULT (28 Aug 2026): the two canonical landscape rotations of the
+ * working portrait value 0xC0 — 0xA0 (MV|MY) and 0x60 (MV|MX) — both come out
+ * MIRRORED left-to-right on a rescued board, not merely rotated. So this panel
+ * needs a NON-canonical MADCTL: 0x20 is 0xA0 with MY cleared, which un-mirrors
+ * the long axis while leaving the short axis (and therefore the vertical
+ * position) alone. Believed to be a side effect of the rework — but whatever
+ * the cause, MADCTL is the right place to cancel it.
+ *
+ *   mirrored left-to-right -> 0x20 <-> 0xE0 (flip the MY bit)
+ *   upside down            -> add or remove MX (0x20 <-> 0x60)
+ *
+ * Neither mirror bit disturbs the offsets: the 160 axis is full-range, and 24
+ * centres the 80 px window in a 128-wide GRAM, so both are symmetric. */
+#define MADCTL_LANDSCAPE 0x20
 
 #define PANEL_W          160         /* landscape: long axis across          */
 #define PANEL_H          80
@@ -73,6 +85,27 @@
 #define BLACK            0x0000
 #define WHITE            0xFFFF
 #define NOKNOK_PURPLE    0x881E
+
+/* ── Logo colourway ─────────────────────────────────────────────────────────
+ * The two official colourways from brand/logo/README.md. Only these two are
+ * legal — the mark is always half brand-neutral, half purple.
+ *
+ *   DARK  (0) — black background, "nok" WHITE + "nok" PURPLE  (whitepurple)
+ *   LIGHT (1) — white background, "nok" BLACK + "nok" PURPLE  (blackpurple)
+ *
+ * Dark is the default for the reveal: a full white field blows out the camera
+ * exposure at this size, and the shot cuts straight into a black terminal
+ * afterwards — staying on black keeps that transition seamless. */
+#define LOGO_LIGHT_BG    0
+
+#if LOGO_LIGHT_BG
+  #define WM_BG          WHITE
+  #define WM_NOK1        BLACK
+#else
+  #define WM_BG          BLACK
+  #define WM_NOK1        WHITE
+#endif
+#define WM_NOK2          NOKNOK_PURPLE
 
 #define DC_LOW()    (GPIOC->BCR  = (1u << 3))
 #define DC_HIGH()   (GPIOC->BSHR = (1u << 3))
@@ -262,17 +295,44 @@ static uint8_t draw_char(uint8_t x, uint8_t y, char ch, uint8_t scale,
     return w;
 }
 
-static void draw_text(uint8_t x, uint8_t y, const char *s, uint8_t scale,
-                      uint8_t bold, uint16_t fg, uint16_t bg)
+/* ══════════════════════════════════════════════════════════════════════════
+ * THE WORDMARK — the real logo, not the built-in font
+ *
+ * wordmark.h holds ONE "nok" rasterised from Lilita One, the typeface the
+ * official logo outlines are built from. The logo is that half drawn twice
+ * side by side in two colours, which is exactly how the brand SVGs are put
+ * together (one <path id="nok">, two <use> elements with different fills), so
+ * we store one half, draw it twice, and get the two-tone for free.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+#define WM_W  (NOK_W * 2 + NOK_GAP)
+
+/* Opaque 1bpp blit. Bits are MSB-first with each row padded to a byte
+ * boundary; the padding bits are skipped rather than drawn. */
+static void draw_nok(uint8_t x, uint8_t y, uint16_t fg, uint16_t bg)
 {
-    for (; *s; s++) x = (uint8_t)(x + draw_char(x, y, *s, scale, bold, fg, bg));
+    uint8_t fh = fg >> 8, fl = fg & 0xFF;
+    uint8_t bh = bg >> 8, bl = bg & 0xFF;
+
+    if (x >= PANEL_W || y >= PANEL_H
+        || x + NOK_W > PANEL_W || y + NOK_H > PANEL_H) return;
+
+    gpu_window(x, y, NOK_W, NOK_H);
+    for (uint8_t r = 0; r < NOK_H; r++) {
+        const uint8_t *row = nok_bitmap[r];
+        for (uint8_t c = 0; c < NOK_W; c++) {
+            uint8_t on = (row[c >> 3] >> (7 - (c & 7))) & 1u;
+            spi_tx(on ? fh : bh);
+            spi_tx(on ? fl : bl);
+        }
+    }
+    spi_idle();
 }
 
-/* Centre a string horizontally on the panel. */
-static uint8_t text_x0(const char *s, uint8_t scale, uint8_t bold)
+static void draw_wordmark(uint8_t x, uint8_t y)
 {
-    uint8_t w = text_width(s, scale, bold);
-    return (uint8_t)(w >= PANEL_W ? 0 : (PANEL_W - w) / 2);
+    draw_nok(x, y, WM_NOK1, WM_BG);
+    draw_nok((uint8_t)(x + NOK_W + NOK_GAP), y, WM_NOK2, WM_BG);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -326,10 +386,6 @@ static void backlight_ramp_to(uint16_t target, uint16_t ms)
  * THE SEQUENCE
  * ══════════════════════════════════════════════════════════════════════════ */
 
-static const char WORDMARK[] = "noknok";
-#define WM_SCALE    3                /* 24 px tall, bold -> 137 px wide       */
-#define WM_BOLD     1
-
 static const char MESSAGE[] = "Hello, World!";
 #define MSG_SCALE   2                /* 16 px tall, plain -> 144 px wide      */
 #define MSG_BOLD    0
@@ -365,8 +421,8 @@ int main(void)
     gpu_init();
 
     /* Layout is fixed, so compute it once outside the loop. */
-    const uint8_t wm_x  = text_x0(WORDMARK, WM_SCALE, WM_BOLD);
-    const uint8_t wm_y  = (uint8_t)((PANEL_H - FONT8X8_H * WM_SCALE) / 2);
+    const uint8_t wm_x  = (uint8_t)((PANEL_W - WM_W) / 2);   /* 146 px -> x=7 */
+    const uint8_t wm_y  = (uint8_t)((PANEL_H - NOK_H) / 2);
     const uint8_t msg_y = (uint8_t)((PANEL_H - FONT8X8_H * MSG_SCALE) / 2);
 
     /* Centre the message *including* the cursor, so the whole line sits
@@ -385,17 +441,16 @@ int main(void)
         Delay_Ms(300);
 
         /* ── 2. wordmark ──────────────────────────────────────────────────── */
-        gpu_clear(NOKNOK_PURPLE);
-        draw_text(wm_x, wm_y, WORDMARK, WM_SCALE, WM_BOLD,
-                  WHITE, NOKNOK_PURPLE);
+        gpu_clear(WM_BG);
+        draw_wordmark(wm_x, wm_y);
         backlight_ramp_to(BL_FULL, 280);
         Delay_Ms(1000);
 
         /* ── 3. cut to the terminal ───────────────────────────────────────── */
-        backlight_ramp_to(0, 200);
+        backlight_ramp_to(0, 180);
         gpu_clear(BLACK);
-        backlight_ramp_to(BL_FULL, 160);
-        Delay_Ms(250);
+        backlight_ramp_to(BL_FULL, 140);
+        Delay_Ms(220);
 
         /* ── 4. typewriter ────────────────────────────────────────────────── */
         x = msg_x;
