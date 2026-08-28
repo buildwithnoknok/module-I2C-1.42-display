@@ -10,13 +10,19 @@
  * standalone image linked at 0x0000 and SWD-flashed straight onto a bench
  * board — power it and it just runs, forever, on a seamless loop.
  *
- * ── The loop (≈6 s) ─────────────────────────────────────────────────────────
- *   1. Black, backlight off                                        0.3 s
- *   2. noknok wordmark (white + purple), backlight fades up         1.0 s hold
- *   3. Fade down, clear, fade back up                               0.35 s
- *   4. "Hello, World!" types out character by character             ~1.2 s
- *   5. Block cursor blinks after it                                 ~3.0 s
- *   6. Backlight fades to black -> back to step 1
+ * ── The loop (≈7.9 s) ───────────────────────────────────────────────────────
+ *   1. Black, backlight off                                        0.25 s
+ *   2. noknok wordmark (white + purple), backlight fades up         0.98 s
+ *   3. Fade down, clear, fade back up                               0.42 s
+ *   4. "Hello, World!" types out character by character             0.91 s
+ *   5. Block cursor blinks after it                                 1.40 s
+ *   6. Beat, wipe to black                                          0.29 s
+ *   7. Matrix-homage boot log types out in green                    2.28 s
+ *   8. Closing line in brand purple, cursor blinking                1.08 s
+ *   9. Backlight fades to black -> back to step 1                   0.35 s
+ *
+ * Two typing speeds on purpose: "Hello, World!" is slow and ceremonial at
+ * 70 ms/char, the boot log is fast and urgent at 22 ms/char.
  *
  * Step 1 leaves the panel black with the backlight already at zero, which is
  * exactly the state step 6 hands over — so the loop point is invisible and the
@@ -472,14 +478,78 @@ static const char MESSAGE[] = "Hello, World!";
 #define CURSOR_W    (CURSOR_COLS * MSG_SCALE)
 #define CURSOR_GAP  2
 
-#define TYPE_MS     85               /* per character                        */
-#define BLINK_MS    380
-#define BLINK_COUNT 4
+#define TYPE_MS     70               /* per character                        */
+#define BLINK_MS    350
+#define BLINK_COUNT 2
 
-static void draw_cursor(uint8_t x, uint8_t y, uint8_t on)
+/* Pass BLACK as the colour to erase. Scaled, so the same cursor works for the
+ * 16 px headline and the 8 px terminal feed. */
+static void draw_cursor(uint8_t x, uint8_t y, uint8_t scale, uint16_t c)
 {
-    gpu_fill_rect(x, y, CURSOR_W, (uint8_t)(FONT8X8_H * MSG_SCALE),
-                  on ? WHITE : BLACK);
+    gpu_fill_rect(x, y, (uint8_t)(CURSOR_COLS * scale),
+                  (uint8_t)(FONT8X8_H * scale), c);
+}
+
+/* ── Matrix-homage tail ─────────────────────────────────────────────────────
+ * A boot-log feed at scale 1 (8 px), green on black, with the closing line in
+ * brand purple.
+ *
+ * NO SCROLLING NEEDED. "don't follow the white rabbit." is 183 px against a
+ * 156 px usable width, so it wraps — but the wrapped total is only 5 rows and
+ * 5 x 10 px pitch fits the 80 px panel with margin to spare. So the feed just
+ * types down the screen, which reads as a boot log anyway and avoids a
+ * software scroll. That matters here: the panel is framebuffer-less and the
+ * controller's hardware vertical scroll runs along the panel's native axis,
+ * which the MV bit has turned into the screen's HORIZONTAL axis — so a scroll
+ * would have to be a full redraw of every line, ~50 ms of visible flicker per
+ * step. Not worth it for content that fits.
+ *
+ * The wrap is hard-coded rather than computed: it is fixed marketing copy, and
+ * hand-breaking it keeps "white rabbit." intact on its own row instead of
+ * orphaning "rabbit." — which a greedy wrapper would do. */
+
+#define TERM_SCALE  1
+#define TERM_LEAD   10               /* line pitch in px (8 px text + 2)      */
+#define TERM_X0     4
+#define TERM_Y0     14               /* 5 rows x 10 -> ends at 62 of 80       */
+#define TERM_GREEN  0x07E0           /* phosphor green; a full channel, so    */
+                                     /* the default gamma leaves it alone     */
+#define TERM_MS     22               /* per character — fast, urgent          */
+#define TERM_PAUSE  120              /* beat between lines                    */
+
+typedef struct {
+    const char *text;
+    uint8_t     purple;              /* 1 = brand purple instead of green     */
+} TermLine;
+
+static const TermLine term_lines[] = {
+    { "wake up, maker...",     0 },  /* 104 px */
+    { "the modules have you.", 0 },  /* 134 px */
+    { "don't follow the",      0 },  /*  97 px */
+    { "white rabbit.",         0 },  /*  82 px */
+    { "> follow noknok",       1 },  /*  94 px */
+};
+#define TERM_LINES  (sizeof(term_lines) / sizeof(term_lines[0]))
+
+/* Types the feed and leaves the cursor sitting after the last line.
+ * Returns the cursor x so the caller can blink it. */
+static uint8_t run_terminal(uint8_t *cursor_y)
+{
+    uint8_t y = TERM_Y0, x = TERM_X0;
+
+    for (uint8_t i = 0; i < TERM_LINES; i++) {
+        uint16_t fg = term_lines[i].purple ? NOKNOK_PURPLE : TERM_GREEN;
+
+        x = TERM_X0;
+        for (const char *p = term_lines[i].text; *p; p++) {
+            x = (uint8_t)(x + draw_char(x, y, *p, TERM_SCALE, 0, fg, BLACK));
+            Delay_Ms(TERM_MS);
+        }
+        if (i + 1 < TERM_LINES) { Delay_Ms(TERM_PAUSE); y = (uint8_t)(y + TERM_LEAD); }
+    }
+
+    *cursor_y = y;
+    return (uint8_t)(x + 1);
 }
 
 int main(void)
@@ -511,46 +581,61 @@ int main(void)
                                                        : (PANEL_W - line_w) / 2);
 
     for (;;) {
-        uint8_t x;
+        uint8_t x, ty, tx;
 
         /* ── 1. black ─────────────────────────────────────────────────────── */
         backlight_set(0);
         gpu_clear(BLACK);
-        Delay_Ms(300);
+        Delay_Ms(250);
 
         /* ── 2. wordmark ──────────────────────────────────────────────────── */
         gpu_clear(WM_BG);
         draw_wordmark(wm_x, wm_y);
         backlight_ramp_to(BL_FULL, 280);
-        Delay_Ms(1000);
+        Delay_Ms(700);
 
         /* ── 3. cut to the terminal ───────────────────────────────────────── */
-        backlight_ramp_to(0, 180);
+        backlight_ramp_to(0, 150);
         gpu_clear(BLACK);
-        backlight_ramp_to(BL_FULL, 140);
-        Delay_Ms(220);
+        backlight_ramp_to(BL_FULL, 120);
+        Delay_Ms(150);
 
         /* ── 4. typewriter ────────────────────────────────────────────────── */
         x = msg_x;
         for (const char *p = MESSAGE; *p; p++) {
             x = (uint8_t)(x + draw_char(x, msg_y, *p, MSG_SCALE, MSG_BOLD,
                                         WHITE, BLACK));
-            draw_cursor((uint8_t)(x + CURSOR_GAP), msg_y, 1);
+            draw_cursor((uint8_t)(x + CURSOR_GAP), msg_y, MSG_SCALE, WHITE);
             Delay_Ms(TYPE_MS);
             /* Erase the cursor before the next glyph lands where it sits. */
-            if (p[1]) draw_cursor((uint8_t)(x + CURSOR_GAP), msg_y, 0);
+            if (p[1]) draw_cursor((uint8_t)(x + CURSOR_GAP), msg_y,
+                                  MSG_SCALE, BLACK);
         }
 
         /* ── 5. blinking cursor ───────────────────────────────────────────── */
         for (uint8_t b = 0; b < BLINK_COUNT; b++) {
             Delay_Ms(BLINK_MS);
-            draw_cursor((uint8_t)(x + CURSOR_GAP), msg_y, 0);
+            draw_cursor((uint8_t)(x + CURSOR_GAP), msg_y, MSG_SCALE, BLACK);
             Delay_Ms(BLINK_MS);
-            draw_cursor((uint8_t)(x + CURSOR_GAP), msg_y, 1);
+            draw_cursor((uint8_t)(x + CURSOR_GAP), msg_y, MSG_SCALE, WHITE);
         }
-        Delay_Ms(500);
 
-        /* ── 6. fade out, hand back to step 1 ─────────────────────────────── */
+        /* ── 6. beat, then wipe to the feed ───────────────────────────────── */
+        Delay_Ms(250);
+        gpu_clear(BLACK);            /* lit wipe — reads as a screen clear    */
+
+        /* ── 7. Matrix-homage feed ────────────────────────────────────────── */
+        tx = run_terminal(&ty);
+
+        /* ── 8. hold on "> follow noknok_", cursor blinking in purple ─────── */
+        draw_cursor(tx, ty, TERM_SCALE, NOKNOK_PURPLE);
+        Delay_Ms(420);
+        draw_cursor(tx, ty, TERM_SCALE, BLACK);
+        Delay_Ms(240);
+        draw_cursor(tx, ty, TERM_SCALE, NOKNOK_PURPLE);
+        Delay_Ms(420);
+
+        /* ── 9. fade out, hand back to step 1 ─────────────────────────────── */
         backlight_ramp_to(0, 350);
     }
 }

@@ -54,6 +54,8 @@ on them.
 | Too bright (dark room) | `BL_FULL` — 250 = 25% duty; 150 very dim, 400 dim room, 999 full |
 | Typing too fast/slow | `TYPE_MS` (85 ms per character) |
 | Cursor blinks too fast | `BLINK_MS` / `BLINK_COUNT` |
+| Boot log too fast/slow | `TERM_MS` (22 ms/char), `TERM_PAUSE` (beat between lines) |
+| Boot log text or wrap | `term_lines[]` — hard-wrapped, keep each row under 156 px |
 
 
 ## Purple calibration — why the brand colour is not the brand value
