@@ -81,10 +81,28 @@
 #define COLMOD_VALUE     0x05
 #define SPI_BAUD_DIV     (2u << 3)   /* PCLK/8 = 6 MHz                       */
 
-/* RGB565. noknok Purple is #8B00F3 -> R 17, G 0, B 30. */
 #define BLACK            0x0000
 #define WHITE            0xFFFF
-#define NOKNOK_PURPLE    0x881E
+
+/* noknok Purple, GAMMA-COMPENSATED FOR THIS PANEL — bench-picked 28 Aug 2026.
+ *
+ * The brand colour is #8B00F3, which encodes to RGB565 0x881E (R 17, G 0,
+ * B 30). Sending that renders as BLUE here, because we run the minimal DCS
+ * init with no vendor gamma table (the generic one killed the panel during
+ * bring-up), so the controller sits on its power-on default curve. That curve
+ * crushes MID-level channels hardest: #8B00F3 is R 54.8 % / B 96.8 %, so the
+ * blue sails through untouched while the red is flattened out of the mix.
+ *
+ * 0xD81C (R 27, G 0, B 28) is what reads as noknok purple on the panel. Note
+ * that it is nominally ~#DE00E6, a MAGENTA — we send magenta to get purple
+ * back out, which is the measure of how far off the default red curve is.
+ * Picked from the six-swatch comparison in SWATCH_MODE below.
+ *
+ * SCOPE: this is panel-specific compensation for a rework board on default
+ * gamma, correct for this video and nothing else. #8B00F3 / 0x881E stays the
+ * canonical brand value in the module firmware — do NOT propagate this number
+ * into product code. Revisit once EastRising's real gamma table is in. */
+#define NOKNOK_PURPLE    0xD81C
 
 /* ── Logo colourway ─────────────────────────────────────────────────────────
  * The two official colourways from brand/logo/README.md. Only these two are
@@ -401,6 +419,47 @@ static void backlight_ramp_to(uint16_t target, uint16_t ms)
  * THE SEQUENCE
  * ══════════════════════════════════════════════════════════════════════════ */
 
+/* ── Purple calibration mode ────────────────────────────────────────────────
+ * Set to 1 to replace the whole sequence with six purple swatches side by
+ * side, numbered 1-6, and pick the one that reads as #8B00F3 on the actual
+ * panel under the actual lights. Then copy that value into NOKNOK_PURPLE and
+ * set this back to 0.
+ *
+ * WHY this is needed: we run the minimal DCS init with NO vendor gamma table
+ * (the generic one killed the panel during bring-up), so the controller is on
+ * its power-on default gamma. That curve crushes MID-level channels hardest.
+ * #8B00F3 is R 54.8 % / B 96.8 % — the blue sails through untouched while the
+ * red gets flattened, so a numerically correct violet renders as blue. The
+ * cure is to pre-compensate the red, which is a thing you judge by eye, not
+ * by arithmetic. Swatches are drawn edge to edge on purpose: adjacent
+ * comparison is far more reliable than looking at one colour at a time. */
+#define SWATCH_MODE 0
+
+#if SWATCH_MODE
+static const uint16_t swatches[6] = {
+    0x881E,   /* 1  R17 B30 — exact #8B00F3; renders BLUE on this panel */
+    0xA01E,   /* 2  R20 B30 */
+    0xB81E,   /* 3  R23 B30 */
+    0xC81D,   /* 4  R25 B29 */
+    0xD81C,   /* 5  R27 B28 — PICKED, now NOKNOK_PURPLE */
+    0xB81A,   /* 6  R23 B26 — red boosted AND blue pulled back */
+};
+
+static void run_swatch(void)
+{
+    gpu_clear(BLACK);
+    for (uint8_t i = 0; i < 6; i++) {
+        uint8_t x  = (uint8_t)(2 + i * 26);
+        uint8_t cw = char_adv((char)('1' + i), 2, 0);
+        gpu_fill_rect(x, 0, 26, 56, swatches[i]);
+        draw_char((uint8_t)(x + (26 - cw) / 2), 60, (char)('1' + i),
+                  2, 0, WHITE, BLACK);
+    }
+    backlight_ramp_to(BL_FULL, 300);
+    for (;;) { }
+}
+#endif
+
 static const char MESSAGE[] = "Hello, World!";
 #define MSG_SCALE   2                /* 16 px tall, plain -> 144 px wide      */
 #define MSG_BOLD    0
@@ -434,6 +493,10 @@ int main(void)
     backlight_init();
     backlight_set(0);                /* panel init happens in the dark        */
     gpu_init();
+
+#if SWATCH_MODE
+    run_swatch();                    /* never returns */
+#endif
 
     /* Layout is fixed, so compute it once outside the loop. */
     const uint8_t wm_x  = (uint8_t)((PANEL_W - WM_W) / 2);   /* 146 px -> x=7 */
