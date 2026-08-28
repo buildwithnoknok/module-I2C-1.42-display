@@ -49,6 +49,7 @@ on them.
 | Image shifted a few px up/down | nudge `LAND_Y_OFF` (24 assumes a 128-wide GRAM; a 132-wide one wants 26) |
 | Colours inverted | drop the `INVON` line in `gpu_init()` |
 | Colours garbage | `COLMOD_VALUE` `0x55` instead of `0x05` |
+| Too bright (dark room) | `BL_FULL` — 250 = 25% duty; 150 very dim, 400 dim room, 999 full |
 | Typing too fast/slow | `TYPE_MS` (85 ms per character) |
 | Cursor blinks too fast | `BLINK_MS` / `BLINK_COUNT` |
 

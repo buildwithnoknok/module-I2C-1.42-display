@@ -342,7 +342,22 @@ static void draw_wordmark(uint8_t x, uint8_t y)
  * ══════════════════════════════════════════════════════════════════════════ */
 
 #define BL_PWM_MAX  999              /* 48 kHz — no beat against the camera  */
-#define BL_FULL     BL_PWM_MAX
+
+/* Peak brightness for the shoot. This is a DARK-ROOM setting: at 100 % the
+ * panel blows out the exposure and the purple clips toward white.
+ *
+ * Perceived brightness goes roughly as luminance^0.45, so duty and apparent
+ * brightness are not the same thing — 25 % duty still looks a bit over half
+ * as bright, which is why this is not set lower.
+ *
+ *   150 = 15 %   very dim, for a pitch-black room
+ *   250 = 25 %   dark room                          <- current
+ *   400 = 40 %   dim room
+ *   999 = 100 %  daylight / desk (the original)
+ *
+ * The fades all ramp to this value, so it dims the whole sequence coherently
+ * and the 40-step ramp stays smooth (6 counts per step at 250). */
+#define BL_FULL     250
 
 static uint16_t bl_current = 0;
 
