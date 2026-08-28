@@ -21,16 +21,17 @@
  * every line after it arrives as if Enter had been pressed, the cursor blinks
  * where it lands, and the window scrolls once the panel is full:
  *
- *     Hello, World!        white
- *     wake up,             green
+ *     Hello, World!
+ *     wake up,
  *     maker...
- *     the modules
- *     have you.
+ *     the world
+ *     is going
+ *     modular
  *     do not follow
  *     the white
  *     rabbit.
- *     > follow             brand purple
- *     noknok_
+ *     > follow
+ *     noknok_              "nok" white + "nok" brand purple
  *
  * Two typing speeds on purpose: "Hello, World!" is slow and ceremonial at
  * 70 ms/char, the feed that follows is faster and more urgent at 45 ms/char.
@@ -513,11 +514,11 @@ static void draw_cursor(uint8_t x, uint8_t y, uint16_t c)
  *
  *     "Hello, World!"                   144 px   fits
  *     "wake up, maker..."               192 px   wraps
- *     "the modules have you."           248 px   wraps
+ *     "the world is going modular"      309 px   wraps
  *     "do not follow the white rabbit." 348 px   wraps
  *     "> follow noknok"                 174 px   wraps
  *
- * Wrapped, that is TEN rows through a four-row window, so this really does
+ * Wrapped, that is ELEVEN rows through a four-row window, so this really does
  * scroll. Scrolling is a full software redraw: the panel is framebuffer-less,
  * and the controller's hardware vertical scroll runs along the panel's native
  * axis, which the MV bit has turned into the screen's HORIZONTAL axis, so it
@@ -563,8 +564,9 @@ static const ScriptRow script[] = {
     { "Hello, World!", 1, 2, NO_SPLIT },   /* 144 px */
     { "wake up,",      1, 0, NO_SPLIT },   /*  99 px */
     { "maker...",      0, 2, NO_SPLIT },   /*  87 px */
-    { "the modules",   1, 0, NO_SPLIT },   /* 136 px */
-    { "have you.",     0, 2, NO_SPLIT },   /* 106 px */
+    { "the world",     1, 0, NO_SPLIT },   /* 110 px */
+    { "is going",      0, 0, NO_SPLIT },   /*  91 px */
+    { "modular",       0, 2, NO_SPLIT },   /*  96 px */
     { "do not follow", 1, 0, NO_SPLIT },   /* 146 px */
     { "the white",     0, 0, NO_SPLIT },   /* 106 px */
     { "rabbit.",       0, 2, NO_SPLIT },   /*  84 px */
