@@ -61,20 +61,49 @@ on them.
 ## Purple calibration — why the brand colour is not the brand value
 
 `NOKNOK_PURPLE` is **`0xD81C`**, not the `0x881E` that `#8B00F3` actually
-encodes to. Sending the correct value renders **blue** on this panel.
+## The loop (~7.9 s)
 
-The cause is gamma. We run the minimal DCS init with **no vendor gamma table**
-(the generic one killed the panel during bring-up), so the controller sits on
-its power-on default curve — and that curve crushes **mid-level** channels
-hardest. `#8B00F3` is R 54.8 % / B 96.8 %: the blue sails through untouched
-while the red is flattened out of the mix, and violet collapses to blue.
+| | | |
+|---|---|---|
+| 1 | Black, backlight off | 0.25 s |
+| 2 | **noknok** wordmark, white + purple, backlight fades up | 0.98 s |
+| 3 | Fade down, clear, fade back up | 0.42 s |
+| 4 | `Hello, World!` types out character by character | 0.91 s |
+| 5 | Block cursor blinks after it | 1.40 s |
+| 6 | Beat, wipe to black | 0.29 s |
+| 7 | Matrix-homage boot log types out in green | 2.28 s |
+| 8 | Closing line in brand purple, cursor blinking | 1.08 s |
+| 9 | Backlight fades out → back to step 1 | 0.35 s |
 
-`0xD81C` is R 27 / B 28, nominally about `#DE00E6` — a **magenta**. We send
-magenta to get purple back out, which is the measure of how far off the
-default red curve is.
+Two typing speeds on purpose: `Hello, World!` is slow and ceremonial at
+70 ms/char, the boot log is fast and urgent at 22 ms/char.
 
-To re-pick (different panel, different lighting, different camera): set
-`SWATCH_MODE` to `1`, flash, and six candidates appear edge to edge,
+The feed reads:
+
+```
+wake up, maker...
+the modules have you.
+don't follow the
+white rabbit.
+> follow noknok_          <- brand purple
+```
+
+**No scrolling is involved.** `don't follow the white rabbit.` is 183 px
+against a 156 px usable width so it wraps, but the wrapped total is only 5 rows
+and 5 x 10 px pitch fits the 80 px panel with room to spare — the feed just
+types down the screen, which reads as a boot log anyway. That is worth having:
+the panel is framebuffer-less, and the controller's hardware vertical scroll
+runs along the panel's native axis, which the `MV` bit has turned into the
+screen's HORIZONTAL axis — so a scroll would mean a full redraw of every line,
+~50 ms of visible flicker per step.
+
+The wrap is hard-coded rather than computed: it is fixed marketing copy, and
+hand-breaking it keeps `white rabbit.` intact on its own row instead of
+orphaning `rabbit.`, which a greedy wrapper would do.
+
+Step 1 leaves the panel black with the backlight already at zero — exactly the
+state step 9 hands over — so the loop point is invisible and the footage cuts
+as a seamless reel.
 numbered 1-6. Judge them **through the camera**, not by eye. Copy the winner
 into `NOKNOK_PURPLE` and set `SWATCH_MODE` back to `0`.
 
