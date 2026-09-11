@@ -1,0 +1,7 @@
+{
+  "module": "display",
+  "version": "0.5.0",
+  "url": "https://raw.githubusercontent.com/buildwithnoknok/module-I2C-1.42-display/main/firmware/bin/display_firmware.bin",
+  "requires_bootloader": "stage1",
+  "released": "2026-09-11"
+}
