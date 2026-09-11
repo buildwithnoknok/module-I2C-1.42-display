@@ -2,7 +2,10 @@
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 noknok / Christopher Houben
  *
- * noknok 1.42" Display Module Firmware  v0.3.0
+ * noknok 1.42" Display Module Firmware  v0.4.0
+ *
+ * v0.4.0: DEV-31 hardening C — independent watchdog + boot-attempt handshake
+ *   with stage-1 (clears the counter once an I2C address is assigned).
  * CH32V003F4U6 (QFN-20)  |  Stack: cnlohr/ch32fun
  *
  * A real noknok I2C module: enumeration, the standard system commands, drawing
@@ -81,7 +84,7 @@
 
 #define PROTOCOL_VERSION 0x01
 #define FW_VERSION_MAJOR 0
-#define FW_VERSION_MINOR 3
+#define FW_VERSION_MINOR 4
 #define FW_VERSION_PATCH 0
 
 #define CMD_CLEAR            0x01
@@ -102,6 +105,27 @@
 
 #define BL_MAGIC_CELL    (*(volatile uint32_t *)0x200007F0U)
 #define BL_MAGIC_ENTER   0x6E6B4231U   /* "nkB1" */
+
+/* ── App health handshake with stage-1 (DEV-31 hardening C) ──────────────────
+ * Stage-1 counts every boot of this app in a no-init RAM cell and stops booting
+ * it after three consecutive warm resets without the app ever proving itself,
+ * parking the module in the bootloader at 0x7E so the host can push a good
+ * image instead. That turns "a broken app with a valid CRC is booted forever"
+ * into "a broken app gets three tries". Two things make it work here:
+ *   - the independent watchdog, so a hang becomes a warm reset (~2 s), and
+ *   - clearing the counter the moment we KNOW we are healthy: an I2C address
+ *     has been assigned, i.e. enumeration completed, i.e. I2C works.
+ * Address and tag must match noknok_stage1. */
+#define BOOT_ATTEMPT_CELL (*(volatile uint32_t *)0x200007F8U)
+
+static void iwdg_init(void)
+{
+    /* LSI ~128 kHz / 64 = 2 kHz; reload 4095 -> ~2.05 s. Hardware starts LSI. */
+    IWDG->CTLR = 0x5555;  IWDG->PSCR = 4;
+    IWDG->CTLR = 0x5555;  IWDG->RLDR = 0xFFF;
+    IWDG->CTLR = 0xCCCC;  /* start — cannot be stopped except by reset */
+}
+static inline void iwdg_kick(void) { IWDG->CTLR = 0xAAAA; }
 
 /* ── Panel geometry ──────────────────────────────────────────────────────
  * The 80x160 visible area is a window inside the controller's larger GRAM.
@@ -523,6 +547,7 @@ static void backlight_ramp_to(uint16_t target, uint16_t ms)
     int32_t from = bl_current, delta = (int32_t)target - from;
     for (int32_t i = 0; i <= 20; i++) {
         backlight_set_raw((uint16_t)(from + delta * i / 20));
+        iwdg_kick();      /* a ramp may legitimately run for a while */
         Delay_Ms(ms / 20);
     }
 }
@@ -807,6 +832,7 @@ static void process_command(void)
 int main(void)
 {
     SystemInit();
+    iwdg_init();          /* hardening C: hang -> warm reset -> stage-1 counts it */
 
     RCC->APB2PCENR |= RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD
                     | RCC_APB2Periph_SPI1  | RCC_APB2Periph_TIM1
@@ -826,6 +852,7 @@ int main(void)
     while (1)
     {
         uint32_t now = ms_tick;
+        iwdg_kick();          /* every loop iteration; nothing here blocks > 2 s */
 
         if (dev_state == DEV_BOOT_WAITING && now >= backoff_ms) {
             enum_ready_start_ms = now;
@@ -844,6 +871,7 @@ int main(void)
         if (dev_state == DEV_ASSIGNING) {
             i2c_switch_addr(new_addr);
             dev_state = DEV_ASSIGNED;
+            BOOT_ATTEMPT_CELL = 0;   /* healthy: I2C works, enumeration done */
             /* Clear the splash — the module now belongs to a product. */
             gpu_clear(BLACK);
         }
