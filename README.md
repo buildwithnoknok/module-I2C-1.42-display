@@ -91,13 +91,16 @@ Symbols & footprints live in the **Ecosystem** repo (`electrical/noknok.kicad_sy
 
 ## Firmware
 
-Source in `firmware/src/`, distributable OTA image in `firmware/bin/`. Linked at `0x1000` to
+Source in `firmware/src/`, distributable OTA image in `firmware/bin/`. Linked at `0x1400` (bootloader layout 2) to
 run under the shared noknok I2C bootloader; flashed over I2C, not SWD.
 
 ### Changelog
 
 Every release from **v0.4.0 onwards must add an entry here before the binary is committed.**
 Entries below v0.4.0 were written retrospectively.
+
+#### v0.5.0 — 11 Sep 2026
+- Relinked at the `0x1400` flash offset (bootloader **layout 2**: 1 KB stage-0 + 4 KB stage-1 below the app; was `0x1000`). Firmware behaviour unchanged. **Not compatible with the legacy monolithic bootloader or a layout-1 stage-1** — such a module gets stage-0 + stage-1 v1.1.0 over SWD first, then this app over I²C. See [module-I2C-bootloader](https://github.com/buildwithnoknok/module-I2C-bootloader).
 
 #### v0.4.0 — 11 Sep 2026
 - Runs the independent watchdog (~2 s, kicked every main-loop pass) and writes `0` to `0x200007F8` the moment its I²C address is assigned — the app-health handshake with the stage-1 bootloader. Stage-1 counts watchdog resets and parks the module (error 7, rescued by the Conductor by UID) after three in a row, instead of booting a broken app forever. Contract: [Ecosystem / software / bootloader-update.md §3](https://github.com/buildwithnoknok/Ecosystem/blob/main/software/bootloader-update.md). No protocol or command change. The watchdog is also kicked inside the backlight ramp (the one blocking loop).
