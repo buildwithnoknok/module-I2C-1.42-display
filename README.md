@@ -99,6 +99,9 @@ run under the shared noknok I2C bootloader; flashed over I2C, not SWD.
 Every release from **v0.4.0 onwards must add an entry here before the binary is committed.**
 Entries below v0.4.0 were written retrospectively.
 
+#### v0.4.0 — 11 Sep 2026
+- Runs the independent watchdog (~2 s, kicked every main-loop pass) and writes `0` to `0x200007F8` the moment its I²C address is assigned — the app-health handshake with the stage-1 bootloader. Stage-1 counts watchdog resets and parks the module (error 7, rescued by the Conductor by UID) after three in a row, instead of booting a broken app forever. Contract: [Ecosystem / software / bootloader-update.md §3](https://github.com/buildwithnoknok/Ecosystem/blob/main/software/bootloader-update.md). No protocol or command change. The watchdog is also kicked inside the backlight ramp (the one blocking loop).
+
 #### v0.3.0 — 23 Jul 2026
 - `SET_ROTATION` (0x11) and `SET_ORIENT` (0x14). Panel geometry and GRAM offsets became
   **runtime state** rather than compile-time constants, so clipping, `GET_INFO` and the blit
