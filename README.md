@@ -139,7 +139,7 @@ Entries below v0.4.0 were written retrospectively.
   not to be honoured by this controller, so the physical 180° panel rotation is only half
   cancelled. Use `SET_ORIENT` to find the right MADCTL.
 - Rotation offsets for anything other than rotation 0 are guesses.
-- Icons and a second (larger) font are not implemented.
+- Icons and a second (larger) font are not implemented in firmware — and no longer need to be: since `noknok.py` v1.9 (DEV-41, 19 Sep 2026) icons, images, `print()` and named regions are rendered on the Pico and streamed over the existing 1bpp `BLIT` path. `DRAW_ICON` (0x04) is reserved/unused. Note the driver's native text table now matches this firmware (one 8×8 font, scale 1–8).
 - The status LED is not driven — PD1/SWIO does not work (Jira DEV-20).
 
 ## Status / next steps
