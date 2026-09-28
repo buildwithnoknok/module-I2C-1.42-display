@@ -14,7 +14,7 @@ Runs the panel **landscape (160×80)**.
 | `SHOW` | What | Length |
 |---|---|---|
 | `SHOW_REVEAL` | the module's first public reveal | ~15.5 s |
-| `SHOW_PIDCODES` | the pid.codes VID/PID announcement | ~20 s |
+| `SHOW_PIDCODES` | the pid.codes VID/PID announcement | ~22 s |
 
 Everything else is shared — panel init, the wordmark intro, the
 gamma-compensated purple, the typing speeds, the centred-then-scrolling
@@ -37,20 +37,32 @@ PID 0x4E42
 in ASCII?
 4E4E = NN
 4E42 = NB
-yes, on
-purpose.
+and the 42?
+the answer
+to it all.
 thanks,
 pid.codes
 > follow
 noknok_
 ```
 
-The whole thing builds to one payoff: **the PIDs spell the brand in ASCII.**
-`0x4E` is `'N'` and `0x42` is `'B'`, so `4E4E` reads `NN` (noknok) and
-`4E42` reads `NB` (noknok Bootloader). Showing the raw hex first and only
-then decoding it lets the viewer get there half a beat before the screen does,
-which is the entire joke — hence the blink pause sitting on `PID 0x4E42`
-before `in ASCII?` arrives.
+The script builds to **two** payoffs, both of them deliberate choices in the
+numbers themselves:
+
+1. **The PIDs spell the brand in ASCII.** `0x4E` is `'N'` and `0x42` is `'B'`,
+   so `4E4E` reads `NN` (noknok) and `4E42` reads `NB` (noknok Bootloader).
+   `NK` was the obvious second choice for the K in noknok, but `'K'` is `0x4B`,
+   too easily misread as `0x48` — hence `NB`.
+2. **Which lands 42 in the bootloader PID** — the Answer to the Ultimate
+   Question of Life, the Universe and Everything. That is the closing beat.
+
+The Hitchhiker's line proper does not fit the panel (‘universe, and’ alone is
+158 px against a 144 px row budget), so `the answer / to it all.` carries the
+reference instead.
+
+The raw hex is shown **first** and decoded only afterwards, so the viewer gets
+there half a beat before the screen does — that is the whole joke, and it is why
+a blink pause is parked on `PID 0x4E42` before `in ASCII?` arrives.
 
 `It's official!` is 147 px, three over the 144 px a row needs to leave the
 cursor room, so it wraps to `It's` / `official!`. That is the better read

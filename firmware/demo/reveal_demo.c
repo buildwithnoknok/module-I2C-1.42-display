@@ -41,8 +41,9 @@
  *     rabbit.                in ASCII?
  *     > follow               4E4E = NN
  *     noknok_                4E42 = NB
- *                            yes, on
- *                            purpose.
+ *                            and the 42?
+ *                            the answer
+ *                            to it all.
  *                            thanks,
  *                            pid.codes
  *                            > follow
@@ -608,17 +609,26 @@ static const ScriptRow script[] = {
 #else   /* SHOW_PIDCODES ─────────────────────────────────────────────────────
  * The pid.codes VID/PID announcement (registered 28 Sep 2026, pidcodes#1230).
  *
- * The whole thing builds to one payoff: the PIDs spell the brand in ASCII.
- * 0x4E is 'N' and 0x42 is 'B', so 4E4E reads "NN" (noknok) and 4E42 reads
- * "NB" (noknok Bootloader). Showing the raw hex first and only then decoding
- * it lets the viewer get there half a beat before the screen does, which is
- * the entire joke — hence the blink pause sitting on "PID 0x4E42" before
- * "in ASCII?" arrives.
+ * TWO payoffs, stacked, both of them deliberate choices Christopher made when
+ * he picked the numbers:
+ *
+ *   1. The PIDs spell the brand in ASCII. 0x4E is 'N' and 0x42 is 'B', so
+ *      4E4E reads "NN" (noknok) and 4E42 reads "NB" (noknok Bootloader).
+ *      NK would have been the obvious second choice for the K in noknok, but
+ *      'K' is 0x4B, which is too easily misread as 0x48 — so NB it is.
+ *   2. Which lands 42 in the bootloader PID, the Answer to the Ultimate
+ *      Question of Life, the Universe and Everything. Hence the closing beat.
+ *
+ * The raw hex is shown FIRST and decoded only afterwards, so the viewer gets
+ * there half a beat before the screen does — that is the whole joke, and it is
+ * why a blink pause is parked on "PID 0x4E42" before "in ASCII?" arrives.
  *
  * "It's official!" is 147 px, three over the 144 px a row needs to leave the
  * cursor room, so it wraps to "It's" / "official!". That is the better read
  * anyway: the exclamation lands on its own line instead of being demoted to a
- * full stop to save three pixels. */
+ * full stop to save three pixels. The Hitchhiker's line proper does not fit
+ * either — "universe, and" alone is 158 px — so "the answer / to it all."
+ * carries the reference instead. */
 static const ScriptRow script[] = {
     { "It's",          1, 0, NO_SPLIT },   /*  39 px */
     { "official!",     0, 2, NO_SPLIT },   /* 102 px */
@@ -630,8 +640,9 @@ static const ScriptRow script[] = {
     { "in ASCII?",     1, 0, NO_SPLIT },   /*  98 px */
     { "4E4E = NN",     0, 0, NO_SPLIT },   /* 112 px */
     { "4E42 = NB",     0, 2, NO_SPLIT },   /* 110 px */
-    { "yes, on",       1, 0, NO_SPLIT },   /*  76 px */
-    { "purpose.",      0, 1, NO_SPLIT },   /* 103 px */
+    { "and the 42?",   1, 0, NO_SPLIT },   /* 132 px */
+    { "the answer",    0, 0, NO_SPLIT },   /* 127 px */
+    { "to it all.",    0, 2, NO_SPLIT },   /*  91 px */
     { "thanks,",       1, 0, NO_SPLIT },   /*  88 px */
     { "pid.codes",     0, 1, NO_SPLIT },   /* 110 px */
     { "> follow",      1, 0, NO_SPLIT },   /*  87 px */
