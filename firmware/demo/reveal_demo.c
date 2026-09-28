@@ -2,37 +2,56 @@
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 noknok / Christopher Houben
  *
- * noknok 1.42" Display Module — REVEAL DEMO  v1.0.0
+ * noknok 1.42" Display Module — MARKETING DEMO  v1.1.0
  * CH32V003F4U6 (QFN-20)  |  Stack: cnlohr/ch32fun
  *
- * A self-running "boot to life" loop for the module's first public reveal
- * video. NOT product code: no I2C, no enumeration, no bootloader. It is a
- * standalone image linked at 0x0000 and SWD-flashed straight onto a bench
- * board — power it and it just runs, forever, on a seamless loop.
+ * Self-running loops for filming marketing videos on the panel. NOT product
+ * code: no I2C, no enumeration, no bootloader. A standalone image linked at
+ * 0x0000 and SWD-flashed straight onto a bench board — power it and it just
+ * runs, forever, seamlessly.
  *
- * ── The loop (≈13.5 s) ──────────────────────────────────────────────────────
+ * ── Two shows, one engine ─────────────────────────────────────────────
+ * SHOW picks which script plays. Everything else is shared — panel init, the
+ * wordmark intro, the gamma-compensated purple, the typing speeds, the
+ * centred-then-scrolling terminal — so adding a show is a table of strings
+ * and nothing else.
+ *
+ *   SHOW_REVEAL     the module's first public reveal      ≈15.5 s
+ *   SHOW_PIDCODES   the pid.codes VID/PID announcement    ≈20 s
+ *
+ * ── The loop ────────────────────────────────────────────────────────
  *   1. Black, backlight off                                        0.25 s
  *   2. noknok wordmark (white + purple), backlight fades up         0.98 s
  *   3. Fade down, clear, fade back up                               0.42 s
- *   4. One continuous terminal session, scrolling               ~11.5 s
+ *   4. One continuous terminal session, centred then scrolling   the show
  *   5. Backlight fades to black -> back to step 1                   0.65 s
  *
- * The session is the whole show. "Hello, World!" is simply its first line;
+ * The session is the whole show. Its first line is simply the first line;
  * every line after it arrives as if Enter had been pressed, the cursor blinks
  * where it lands, and the window scrolls once the panel is full:
  *
- *     Hello, World!
- *     wake up...
- *     the world
- *     is going
- *     modular
- *     do not follow
- *     the white
- *     rabbit.
- *     > follow
- *     noknok_              "nok" white + "nok" brand purple
+ *     SHOW_REVEAL            SHOW_PIDCODES
+ *     Hello, World!          It's
+ *     wake up...             official!
+ *     the world              noknok has
+ *     is going               real USB IDs.
+ *     modular                VID 0x1209
+ *     do not follow          PID 0x4E4E
+ *     the white              PID 0x4E42
+ *     rabbit.                in ASCII?
+ *     > follow               4E4E = NN
+ *     noknok_                4E42 = NB
+ *                            yes, on
+ *                            purpose.
+ *                            thanks,
+ *                            pid.codes
+ *                            > follow
+ *                            noknok_
  *
- * Two typing speeds on purpose: "Hello, World!" is slow and ceremonial at
+ * The closing "noknok" is drawn in the logo's own colourway in both shows:
+ * "nok" white, "nok" brand purple.
+ *
+ * Two typing speeds on purpose: the opening line is slow and ceremonial at
  * 70 ms/char, the feed that follows is faster and more urgent at 45 ms/char.
  *
  * Step 1 leaves the panel black with the backlight already at zero, which is
@@ -145,6 +164,19 @@
 /* Purple calibration screen — see the SWATCH_MODE block further down for what
  * it does and why. Declared up here because char_adv() is guarded by it. */
 #define SWATCH_MODE      0
+
+/* ── Which show this build plays ────────────────────────────────────────────
+ *   SHOW_REVEAL     the module's first public reveal   ("Hello, World!" ...)
+ *   SHOW_PIDCODES   the pid.codes VID/PID announcement ("It's official!" ...)
+ *
+ * One engine, two scripts. Everything else is shared — panel init, the
+ * wordmark intro, the gamma-compensated purple, the typing speeds, the
+ * centred-then-scrolling terminal. Only script[] differs, so a new show is a
+ * table of strings and nothing more. Change this, rebuild, reflash. */
+#define SHOW_REVEAL      0
+#define SHOW_PIDCODES    1
+
+#define SHOW             SHOW_PIDCODES
 
 #define DC_LOW()    (GPIOC->BCR  = (1u << 3))
 #define DC_HIGH()   (GPIOC->BSHR = (1u << 3))
@@ -559,6 +591,7 @@ typedef struct {
     uint8_t     purple_from;
 } ScriptRow;
 
+#if SHOW == SHOW_REVEAL
 static const ScriptRow script[] = {
     { "Hello, World!", 1, 2, NO_SPLIT },   /* 144 px */
     { "wake up...",    1, 2, NO_SPLIT },   /* 107 px, fits on one row */
@@ -571,6 +604,41 @@ static const ScriptRow script[] = {
     { "> follow",      1, 0, NO_SPLIT },   /*  87 px */
     { "noknok",        0, 3, 3        },   /*  81 px, "nok" + "nok" */
 };
+
+#else   /* SHOW_PIDCODES ─────────────────────────────────────────────────────
+ * The pid.codes VID/PID announcement (registered 28 Sep 2026, pidcodes#1230).
+ *
+ * The whole thing builds to one payoff: the PIDs spell the brand in ASCII.
+ * 0x4E is 'N' and 0x42 is 'B', so 4E4E reads "NN" (noknok) and 4E42 reads
+ * "NB" (noknok Bootloader). Showing the raw hex first and only then decoding
+ * it lets the viewer get there half a beat before the screen does, which is
+ * the entire joke — hence the blink pause sitting on "PID 0x4E42" before
+ * "in ASCII?" arrives.
+ *
+ * "It's official!" is 147 px, three over the 144 px a row needs to leave the
+ * cursor room, so it wraps to "It's" / "official!". That is the better read
+ * anyway: the exclamation lands on its own line instead of being demoted to a
+ * full stop to save three pixels. */
+static const ScriptRow script[] = {
+    { "It's",          1, 0, NO_SPLIT },   /*  39 px */
+    { "official!",     0, 2, NO_SPLIT },   /* 102 px */
+    { "noknok has",    1, 0, NO_SPLIT },   /* 129 px */
+    { "real USB IDs.", 0, 1, NO_SPLIT },   /* 144 px */
+    { "VID 0x1209",    1, 0, NO_SPLIT },   /* 125 px — the pid.codes VID    */
+    { "PID 0x4E4E",    0, 0, NO_SPLIT },   /* 133 px — application          */
+    { "PID 0x4E42",    0, 2, NO_SPLIT },   /* 131 px — bootloader           */
+    { "in ASCII?",     1, 0, NO_SPLIT },   /*  98 px */
+    { "4E4E = NN",     0, 0, NO_SPLIT },   /* 112 px */
+    { "4E42 = NB",     0, 2, NO_SPLIT },   /* 110 px */
+    { "yes, on",       1, 0, NO_SPLIT },   /*  76 px */
+    { "purpose.",      0, 1, NO_SPLIT },   /* 103 px */
+    { "thanks,",       1, 0, NO_SPLIT },   /*  88 px */
+    { "pid.codes",     0, 1, NO_SPLIT },   /* 110 px */
+    { "> follow",      1, 0, NO_SPLIT },   /*  87 px */
+    { "noknok",        0, 3, 3        },   /*  81 px, "nok" + "nok" */
+};
+#endif
+
 #define SCRIPT_LEN  (sizeof(script) / sizeof(script[0]))
 
 typedef struct {

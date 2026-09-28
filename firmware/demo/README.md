@@ -1,13 +1,63 @@
-# Reveal demo firmware — 1.42″ Display Module
+# Marketing demo firmware — 1.42″ Display Module
 
-Self-running "boot to life" loop for the module's **first public reveal video**.
-Not product code: no I2C, no enumeration, no bootloader. A standalone image
-linked at `0x0000` and SWD-flashed straight onto a bench board — power it and it
-runs forever on a seamless loop.
+Self-running loops for filming **marketing videos** on the panel. Not product
+code: no I2C, no enumeration, no bootloader. A standalone image linked at
+`0x0000` and SWD-flashed straight onto a bench board — power it and it runs
+forever, seamlessly.
 
 Runs the panel **landscape (160×80)**.
 
-## The loop (~15.5 s)
+## Two shows, one engine
+
+`SHOW` at the top of `reveal_demo.c` picks which script plays:
+
+| `SHOW` | What | Length |
+|---|---|---|
+| `SHOW_REVEAL` | the module's first public reveal | ~15.5 s |
+| `SHOW_PIDCODES` | the pid.codes VID/PID announcement | ~20 s |
+
+Everything else is shared — panel init, the wordmark intro, the
+gamma-compensated purple, the typing speeds, the centred-then-scrolling
+terminal. **Adding a show is a table of strings and nothing else.** Change
+`SHOW`, rebuild, reflash.
+
+## SHOW_PIDCODES — the VID/PID announcement
+
+noknok's USB IDs were registered with [pid.codes](https://pid.codes/1209/) on
+28 Sep 2026 — `1209/4E4E` application, `1209/4E42` bootloader.
+
+```
+It's
+official!
+noknok has
+real USB IDs.
+VID 0x1209
+PID 0x4E4E
+PID 0x4E42
+in ASCII?
+4E4E = NN
+4E42 = NB
+yes, on
+purpose.
+thanks,
+pid.codes
+> follow
+noknok_
+```
+
+The whole thing builds to one payoff: **the PIDs spell the brand in ASCII.**
+`0x4E` is `'N'` and `0x42` is `'B'`, so `4E4E` reads `NN` (noknok) and
+`4E42` reads `NB` (noknok Bootloader). Showing the raw hex first and only
+then decoding it lets the viewer get there half a beat before the screen does,
+which is the entire joke — hence the blink pause sitting on `PID 0x4E42`
+before `in ASCII?` arrives.
+
+`It's official!` is 147 px, three over the 144 px a row needs to leave the
+cursor room, so it wraps to `It's` / `official!`. That is the better read
+anyway: the exclamation lands on a line of its own instead of being demoted to
+a full stop to save three pixels.
+
+## SHOW_REVEAL — the first public reveal
 
 | | | |
 |---|---|---|
@@ -119,6 +169,7 @@ on them.
 | Typing too fast/slow | `HEAD_MS` (70 ms, the headline) / `TERM_MS` (45 ms, the feed) |
 | Cursor blinks too fast | `BLINK_MS` / `BLINK_COUNT` |
 | Enter / wrap beats | `ENTER_MS` (220 ms), `WRAP_MS` (80 ms) |
+| Which show plays | `SHOW` = `SHOW_REVEAL` or `SHOW_PIDCODES` |
 | Script text, wrap, blinks, colour split | `script[]` — hard-wrapped; keep each row under 144 px so the cursor fits |
 
 
