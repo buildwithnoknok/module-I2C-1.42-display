@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 noknok / Christopher Houben
  *
- * noknok 1.42" Display Module Firmware  v0.4.0
+ * noknok 1.42" Display Module Firmware  v0.6.0
  *
  * v0.4.0: DEV-31 hardening C — independent watchdog + boot-attempt handshake
  *   with stage-1 (clears the counter once an I2C address is assigned).
@@ -85,7 +85,7 @@
 
 #define PROTOCOL_VERSION 0x01
 #define FW_VERSION_MAJOR 0
-#define FW_VERSION_MINOR 5
+#define FW_VERSION_MINOR 6
 #define FW_VERSION_PATCH 0
 
 #define CMD_CLEAR            0x01
@@ -150,11 +150,35 @@ static inline void iwdg_kick(void) { IWDG->CTLR = 0xAAAA; }
  * no mirror bits is 0x00, which is what the 0 branch selects. Set back to 1
  * only for the old reworked bench board. */
 #define PANEL_ROTATED_REWORK  0
-#if PANEL_ROTATED_REWORK
-  #define MADCTL_VALUE   0xC0        /* MY | MX = 180 degrees */
-#else
-  #define MADCTL_VALUE   0x00
-#endif
+/* ── ORIENTATION ────────────────────────────────────────────────────────────
+ * ALL FOUR BENCH-VERIFIED 1 Oct 2026 on rev 1.1 unit 03-8c-ab-cd-6b-95-bc-3c.
+ * This replaces the old "the offsets are educated guesses" caveat - they are
+ * measured now.
+ *
+ *   ROT_PORTRAIT           0   80x160   MADCTL 0x40  MX
+ *   ROT_LANDSCAPE          1  160x80    MADCTL 0x20  MV            <- DEFAULT
+ *   ROT_PORTRAIT_FLIPPED   2   80x160   MADCTL 0x80  MY
+ *   ROT_LANDSCAPE_FLIPPED  3  160x80    MADCTL 0xE0  MV|MX|MY
+ *
+ * Portrait needs MX SET. MADCTL 0x00 renders text MIRRORED - a symmetric border
+ * cannot reveal that, only text can. The reworked rev 1.0 board wanted 0xC0
+ * (MX|MY); a correctly-mounted panel wants 0x40 (MX). They differ by MY alone,
+ * which is exactly the 180 degrees of the rework's physical rotation - so the
+ * old "un-rotated = 0x00" branch was always wrong: dropping the rotation
+ * removes MY, it does not clear both bits.
+ *
+ * Offsets need NO per-rotation adjustment. (24,0) holds in both mirror states,
+ * so 24 is symmetric and the effective RAM width is 24+80+24 = 128; landscape
+ * is simply the swap, (0,24). The panel blurb quotes 132x162 - that is the
+ * NV3022B maximum, NOT this panel's mapping. */
+#define ROT_PORTRAIT           0
+#define ROT_LANDSCAPE          1
+#define ROT_PORTRAIT_FLIPPED   2
+#define ROT_LANDSCAPE_FLIPPED  3
+
+/* Boot orientation. A maker overrides it at runtime with SET_ROTATION (0x11);
+ * this is only what the module comes up in before anyone says otherwise. */
+#define DEFAULT_ROTATION       ROT_LANDSCAPE
 
 #define COLMOD_VALUE     0x05
 #define SPI_BAUD_DIV     (2u << 3)   /* PCLK/8 = 6 MHz — proven on a rework  */
@@ -208,10 +232,12 @@ static volatile uint8_t last_err  = 0;
  * It has to be measured. SET_ROTATION applies a best-guess table; SET_ORIENT
  * lets the bench set MADCTL and the offsets directly so the right combination
  * can be found live, the same way the original (24,0) offset was found. */
-static uint8_t g_w    = PANEL_W;
-static uint8_t g_h    = PANEL_H;
-static uint8_t g_xoff = GRAM_X_OFF;
-static uint8_t g_yoff = GRAM_Y_OFF;
+/* Seeded to the DEFAULT_ROTATION geometry (landscape) so these are never
+ * momentarily inconsistent; gpu_init() re-applies it authoritatively. */
+static uint8_t g_w    = PANEL_H;        /* 160 - landscape */
+static uint8_t g_h    = PANEL_W;        /*  80             */
+static uint8_t g_xoff = GRAM_Y_OFF;     /*   0             */
+static uint8_t g_yoff = GRAM_X_OFF;     /*  24             */
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * CRC8  (poly 0x07, init 0x00) — identical to every other noknok module
@@ -333,6 +359,32 @@ static inline void spi_idle(void) { while (SPI1->STATR & SPI_STATR_BSY) { } }
 static void lcd_cmd(uint8_t c)  { spi_idle(); DC_LOW(); spi_tx(c); spi_idle(); DC_HIGH(); }
 static void lcd_dat(uint8_t d)  { spi_tx(d); }
 
+/* The ONE place orientation is decided. Used by gpu_init() for the boot default
+ * and by CMD_SET_ROTATION at runtime, so the two can never drift apart. */
+static void gpu_set_rotation(uint8_t rot)
+{
+    static const uint8_t rot_madctl[4] = {
+        0x40,        /* 0 portrait          MX           */
+        0x20,        /* 1 landscape         MV           */
+        0x80,        /* 2 portrait flipped  MY           */
+        0xE0         /* 3 landscape flipped MV | MX | MY */
+    };
+
+    rot &= 0x03;
+#if PANEL_ROTATED_REWORK
+    /* Rescued rev 1.0 boards carry a physically 180-rotated panel, so add 180
+     * to whatever was asked for. */
+    rot = (uint8_t)((rot + 2) & 0x03);
+#endif
+
+    lcd_cmd(0x36); lcd_dat(rot_madctl[rot]);
+    spi_idle();
+
+    if (rot & 1u) { g_w = PANEL_H; g_h = PANEL_W;          /* landscape */
+                    g_xoff = GRAM_Y_OFF; g_yoff = GRAM_X_OFF; }
+    else          { g_w = PANEL_W; g_h = PANEL_H;          /* portrait  */
+                    g_xoff = GRAM_X_OFF; g_yoff = GRAM_Y_OFF; }
+}
 static void gpu_init(void)
 {
     /* PC3 + PC4 = push-pull out (which is D/C and which is RES depends on
@@ -359,8 +411,7 @@ static void gpu_init(void)
     lcd_cmd(0x11);              /* SLPOUT  */
     Delay_Ms(200);
     lcd_cmd(0x3A); lcd_dat(COLMOD_VALUE);
-    lcd_cmd(0x36); lcd_dat(MADCTL_VALUE);
-    spi_idle();
+    gpu_set_rotation(DEFAULT_ROTATION);   /* MADCTL + geometry + offsets */
     lcd_cmd(0x21);              /* INVON — mandatory on this IPS cell */
     lcd_cmd(0x29);              /* DISPON */
     Delay_Ms(20);
@@ -369,8 +420,12 @@ static void gpu_init(void)
 /* Open a GRAM window and leave the controller expecting pixels. */
 static void gpu_window(uint8_t x, uint8_t y, uint8_t w, uint8_t h)
 {
-    uint16_t x0 = x + GRAM_X_OFF, x1 = x0 + w - 1;
-    uint16_t y0 = y + GRAM_Y_OFF, y1 = y0 + h - 1;
+    /* RUNTIME offsets, not the compile-time constants. Using the constants here
+     * was a real bug: SET_ROTATION and SET_ORIENT both write g_xoff/g_yoff, so
+     * with the constants hard-wired they changed MADCTL and the geometry but
+     * silently ignored the offsets - the rotation API was half-broken. */
+    uint16_t x0 = x + g_xoff, x1 = x0 + w - 1;
+    uint16_t y0 = y + g_yoff, y1 = y0 + h - 1;
 
     lcd_cmd(0x2A);
     lcd_dat(x0 >> 8); lcd_dat(x0 & 0xFF);
@@ -591,10 +646,17 @@ static void backlight_ramp_to(uint16_t target, uint16_t ms)
 
 static void draw_splash(void)
 {
+    /* Centred on g_w/g_h, NOT hard-coded portrait coordinates. The old version
+     * drew at y=60..98, which falls off the bottom of an 80px-tall landscape
+     * panel - it only ever worked because portrait used to be the default. */
+    uint8_t bw = (uint8_t)(g_w * 2 / 3);         /* bar width  */
+    uint8_t x  = (uint8_t)((g_w - bw) / 2);
+    uint8_t y  = (uint8_t)(g_h / 2 - 13);
+
     gpu_clear(BLACK);
-    gpu_fill_rect(14, 60, 52, 14, NOKNOK);
-    gpu_fill_rect(14, 80, 52,  6, WHITE);
-    gpu_fill_rect(14, 92, 32,  6, NOKNOK);
+    gpu_fill_rect(x, y,                 bw,              12, NOKNOK);
+    gpu_fill_rect(x, (uint8_t)(y + 15), bw,               5, WHITE);
+    gpu_fill_rect(x, (uint8_t)(y + 23), (uint8_t)(bw/2),  5, NOKNOK);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -786,33 +848,19 @@ static void process_command(void)
         break;
 
     case CMD_SET_ROTATION:
-        /* [0x11, rot 0-3]  0/2 = portrait 80x160, 1/3 = landscape 160x80.
-         * The MADCTL values are certain; the OFFSETS for anything other than
-         * rotation 0 are educated guesses, because the controller's true RAM
-         * width is unknown. Use SET_ORIENT (0x14) to dial them in, then move
-         * the confirmed numbers into this table. */
-        if (n >= 2) {
-            static const uint8_t rot_madctl[4] = {
-                0x00,        /* 0   portrait                */
-                0x60,        /* 90  MV | MX                 */
-                0xC0,        /* 180 MY | MX                 */
-                0xA0         /* 270 MV | MY                 */
-            };
-            uint8_t rot = cmd[1] & 0x03;
-
-            /* The rescued rev 1.0 boards carry a physically 180-rotated panel,
-             * so add 180 to whatever the host asked for. */
-#if PANEL_ROTATED_REWORK
-            rot = (uint8_t)((rot + 2) & 0x03);
-#endif
-            lcd_cmd(0x36); lcd_dat(rot_madctl[rot]);
-            spi_idle();
-
-            if (rot & 1u) { g_w = PANEL_H; g_h = PANEL_W;    /* landscape */
-                            g_xoff = GRAM_Y_OFF; g_yoff = GRAM_X_OFF; }
-            else          { g_w = PANEL_W; g_h = PANEL_H;    /* portrait  */
-                            g_xoff = GRAM_X_OFF; g_yoff = GRAM_Y_OFF; }
-        } else last_err = 1;
+        /* [0x11, rot 0-3]. All four orientations are bench-verified (1 Oct
+         * 2026) - see the ORIENTATION block near the top for the MADCTL values
+         * and why the offsets need no per-rotation adjustment. The work is done
+         * by gpu_set_rotation(), the same helper gpu_init() uses for the boot
+         * default, so runtime and boot can never disagree.
+         *
+         *   0 portrait   1 landscape (default)   2 portrait flipped
+         *   3 landscape flipped
+         *
+         * SET_ORIENT (0x14) still overrides MADCTL and offsets directly for
+         * bench calibration. */
+        if (n >= 2) gpu_set_rotation(cmd[1]);
+        else        last_err = 1;
         break;
 
     case CMD_SET_ORIENT:
