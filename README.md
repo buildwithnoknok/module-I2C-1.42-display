@@ -1,25 +1,37 @@
 # noknok 1.42″ Display Module (I2C)
 
-> **Status:** 🚧 In development — **rev 1.0 boards are non-functional, respin required.**
+> **Status:** rev 1.1 boards are **working and in production** (20 pcs, Oct 2026). Firmware
+> **v0.7.0** is bench-verified on a production unit: enumeration, drawing, both text paths,
+> all four orientations, and brand colours rendering correctly.
 
-> ### ⚠️ Rev 1.0 defect — mirrored FPC footprint
+> ### Rev 1.1 changed the panel control pins — firmware must match
 >
-> The first assembled boards (July 2026) have the panel mounted **mirrored**: the
-> `noknok_ER-TFT1.42-1_13pin_solder_proto` footprint numbered its 13 pads backwards, so board
-> pad *n* contacts panel pin *14−n*. The panel's **RES** lands on GND (permanent reset), its
-> **VCC** lands on the SCK line (never powered), and **LEDA** lands on a touch-NC pin — so the
-> backlight rail sits at a healthy 4.6 V driving 0.18 mA into nothing, and the panel is dead.
+> **rev 1.1 swaps D/C and RES** relative to the reworked rev 1.0 boards:
+> `PC3 = RES` and `PC4 = D/C` (rev 1.0 had them the other way round). SPI is unaffected.
+> Selected by `BOARD_REV_11` in each firmware.
 >
-> The footprint is **fixed** in the Ecosystem library (commit `cb83a33`) — pad 1 is now on the
-> `+X` end. The KiCad layout needs re-importing and the board re-fabbing.
->
-> Everything else on rev 1.0 is **bench-proven good** and does not need re-debugging: the
-> CH32V003 runs on bus power, flash verifies byte-for-byte, GPIO outputs work, the MT3540 boost
-> delivers 4.6 V, the 2N7002 backlight switch works, and the reset RC releases correctly.
->
-> **Before ordering the respin:** physically compare the pin-1 label printed on the panel's own
-> FPC against the board's `Pin1` silk marker. A netlist check cannot catch this class of error —
-> the schematic was correct all along.
+> The symptom of getting it wrong is **actively misleading**: lit backlight, visibly running
+> MCU, and a completely blank screen — because every command/data decision toggles the panel's
+> RESET line while the reset pulse goes to D/C. It looks exactly like a dead panel or a bad
+> init table.
+
+<details>
+<summary><strong>History: the rev 1.0 mirrored-FPC defect (resolved)</strong></summary>
+
+The first assembled boards (July 2026) had the panel mounted **mirrored**: the
+`noknok_ER-TFT1.42-1_13pin_solder_proto` footprint numbered its 13 pads backwards, so board
+pad *n* contacted panel pin *14-n*. The panel's **RES** landed on GND (permanent reset), its
+**VCC** on the SCK line (never powered), and **LEDA** on a touch-NC pin.
+
+Fixed in the Ecosystem library (commit `cb83a33`) — pad 1 is now on the `+X` end — and
+re-fabbed as rev 1.1. Bench boards were rescued by re-soldering the panel rotated 180° in the
+plane of the board, which is why rev 1.0 firmware carried a `PANEL_ROTATED_REWORK` switch.
+
+**The lesson worth keeping:** physically compare the pin-1 label printed on the panel's own FPC
+against the board's `Pin1` silk marker before ordering. A netlist check cannot catch this
+class of error — the schematic was correct all along.
+
+</details>
 
 A modular **1.42-inch colour TFT** display for the noknok ecosystem. A CH32V003 acts as a
 local "GPU" — it renders text, icons and graphics to the panel and speaks the noknok I2C
@@ -56,8 +68,8 @@ protocol, so the display plugs into the standard JST SH bus like any other modul
 | PC1 / PC2 | I2C SDA / SCL | (noknok bus) |
 | PC5 | SPI SCK (via 22 Ω) | SCL/SCK (pin 4) |
 | PC6 | SPI MOSI (via 22 Ω) | SDA/MOSI (pin 3) |
-| PC3 | D/C | RS (pin 5) |
-| PC4 | Reset | RES (pin 6) |
+| PC3 | **rev 1.1: Reset** / rev 1.0: D/C | **RES (pin 6)** / RS (pin 5) |
+| PC4 | **rev 1.1: D/C** / rev 1.0: Reset | **RS (pin 5)** / RES (pin 6) |
 | (GND) | CS tied low | CS (pin 7) |
 | PD2 | Backlight PWM (TIM1_CH1) | (via 2N7002 + 33 Ω) |
 | PD1 | SWIO / flash / status LED | — |
@@ -99,6 +111,51 @@ run under the shared noknok I2C bootloader; flashed over I2C, not SWD.
 Every release from **v0.4.0 onwards must add an entry here before the binary is committed.**
 Entries below v0.4.0 were written retrospectively.
 
+#### v0.7.0 — 1 Oct 2026
+- **Runs EastRising's real init sequence, including the gamma table** (`VENDOR_INIT`), ported
+  from the ER-TFT1.42-1 8051 tutorial on buydisplay.com. **This fixes brand colours**:
+  `#8B00F3` renders as actual purple. Previously, with no gamma table, the controller ran its
+  power-on curve, which mis-maps mid-level codes — purple (R 54.8% / B 96.8%) came out blue
+  because the red was flattened while the near-rail blue passed through.
+- **Why the July vendor-table attempt killed four panels, finally understood.** Vendor
+  registers sit behind a locked page: EastRising unlocks with `0xFF,0xA5`, but the generic
+  Espressif `esp_lcd_nv3022b` table we tried used `0xFD,0x06,0x08`. Wrong key, so every
+  vendor write hit a locked page — and the gamma block is written through `0x2A/0x2B/0x2C`,
+  which *outside* the unlocked page are CASET/RASET/**RAMWR**. Doing that blind sets a
+  nonsense address window and dumps 64 bytes into GRAM.
+- MADCTL is now **init-dependent**: the vendor sets scan direction with the vendor register
+  `0xC3 = 0x11` (ss/gs). Both tables are bench-measured, not derived:
+
+  | rot | vendor init | minimal init |
+  |---|---|---|
+  | 0 portrait | `0xC0` | `0x40` |
+  | 1 landscape (default) | `0xA0` | `0x20` |
+  | 2 portrait flipped | `0x00` | `0x80` |
+  | 3 landscape flipped | `0x60` | `0xE0` |
+
+- COLMOD is the vendor's `0x55` (was `0x05`). The minimal init survives under `#else` —
+  one define reverts everything.
+- Vendor code independently confirms two values found empirically in July: `LCD_SetPos()`
+  uses `x0 + 24` (our GRAM offset) and the init contains `INVON 0x21`.
+
+#### v0.6.0 — 1 Oct 2026
+- **rev 1.1 pin mapping** (`BOARD_REV_11`): `PC3 = RES`, `PC4 = D/C`. Neither this
+  firmware nor the bring-up could drive a rev 1.1 board before this.
+- **Default orientation is now landscape** (160×80). Named `ROT_*` constants plus
+  `DEFAULT_ROTATION`, and a single `gpu_set_rotation()` helper serving both the boot
+  default and `SET_ROTATION` so the two cannot drift apart.
+- **Fixed: `gpu_window()` ignored the runtime GRAM offsets**, using the compile-time
+  constants instead. `g_xoff`/`g_yoff` were written by `SET_ROTATION` and
+  `SET_ORIENT` and never read, so the rotation API changed MADCTL and geometry but
+  silently dropped the offsets.
+- **Fixed: portrait MADCTL was `0x00`, which renders text mirrored.** A symmetric border
+  cannot reveal that — only text can, which is why it survived the original bring-up.
+- **All four rotations bench-verified**, retiring the `offsets for anything other than
+  rotation 0 are guesses` caveat. The effective RAM is **128** wide (offset 24 is
+  symmetric); the blurb's 132×162 is the NV3022B maximum, not this panel's mapping.
+- `draw_splash()` is centred on the live geometry; it previously drew at y=60..98, off the
+  bottom of an 80 px-tall landscape panel.
+
 #### v0.5.0 — 11 Sep 2026
 - Relinked at the `0x1400` flash offset (bootloader **layout 2**: 1 KB stage-0 + 4 KB stage-1 below the app; was `0x1000`). Firmware behaviour unchanged. **Not compatible with the legacy monolithic bootloader or a layout-1 stage-1** — such a module gets stage-0 + stage-1 v1.1.0 over SWD first, then this app over I²C. See [module-I2C-bootloader](https://github.com/buildwithnoknok/module-I2C-bootloader).
 
@@ -135,22 +192,37 @@ Entries below v0.4.0 were written retrospectively.
 
 ### Known gaps
 
-- **Text renders mirrored** on the rescued rev 1.0 boards — under investigation; `MX` appears
-  not to be honoured by this controller, so the physical 180° panel rotation is only half
-  cancelled. Use `SET_ORIENT` to find the right MADCTL.
-- Rotation offsets for anything other than rotation 0 are guesses.
-- Icons and a second (larger) font are not implemented in firmware — and no longer need to be: since `noknok.py` v1.9 (DEV-41, 19 Sep 2026) icons, images, `print()` and named regions are rendered on the Pico and streamed over the existing 1bpp `BLIT` path. `DRAW_ICON` (0x04) is reserved/unused. Note the driver's native text table now matches this firmware (one 8×8 font, scale 1–8).
-- **I2C slave robustness (Jira DEV-44, found 19 Sep 2026):** `last_err` is sticky (never cleared — power-cycle to reset); a STOP without a preceding address match re-executes the stale `rx_buf` (seen as error 4 after a host bus deinit); an address match can wipe a command the main loop has not snapshotted yet. Fix = snapshot into a command buffer in the ISR at STOPF, reset `rx_len`, read-to-clear `last_err`.
+- **I2C slave robustness (Jira DEV-44, found 19 Sep 2026):** `last_err` is sticky (never
+  cleared — power-cycle to reset); a STOP without a preceding address match re-executes the
+  stale `rx_buf` (seen as error 4 after a host bus deinit); an address match can wipe a
+  command the main loop has not snapshotted yet. Fix = snapshot into a command buffer in the
+  ISR at STOPF, reset `rx_len`, read-to-clear `last_err`.
 - The status LED is not driven — PD1/SWIO does not work (Jira DEV-20).
+- Icons and a second (larger) font are not implemented in firmware, and no longer need to be:
+  since `noknok.py` v1.9 (DEV-41) icons, images, `print()` and named regions are rendered
+  on the Pico and streamed over the existing 1bpp `BLIT` path. `DRAW_ICON` (0x04) is
+  reserved/unused.
+- The **bring-up** firmware (`firmware/bringup/`) still runs the minimal init, so brand
+  colours render wrong there. That is fine for its job (liveness, offsets, wiring) but do not
+  judge colour with it — use the module firmware.
+- `panel_flood.c` keeps the **generic Espressif init table purely as a documented dead end**.
+  It is missing the `0xFF,0xA5` unlock, so it cannot work on this panel. Do not revive it.
+
+Resolved in v0.6.0 / v0.7.0: mirrored text, unverified rotation offsets, the rev 1.1 pin
+mapping, and brand colours rendering blue.
 
 ## Status / next steps
 
-- [ ] Confirm schematic nets (boost EN→3.3V-IN, backlight gate→PD2, status-LED cathode→PD1)
-- [ ] PCB layout — FPC keep-out strip (no components under the flex), glass keep-out (top),
-      2× M2.5 mounting holes; use the `_proto` footprint for the first run
-- [ ] BOM with verified LCSC parts
-- [ ] Firmware
-- [ ] Prototype + bring-up (verify pin-1/fold/offset, dial in the production pad position)
+- [x] Schematic, PCB layout, BOM, fabrication — rev 1.1 in production (20 pcs)
+- [x] Bring-up: pin-1/fold/offset verified; GRAM offset (24,0), confirmed against the vendor's
+      own `LCD_SetPos()`
+- [x] Firmware v0.7.0 — bench-verified end to end on a production unit, vendor gamma, all four
+      orientations, landscape default
+- [ ] **DEV-44** I2C slave robustness hardening (the one real open firmware item)
+- [ ] Re-check `BOARD_REV_11` and the MADCTL table on the next panel lot — both are
+      hardware-specific and neither is guaranteed across a lot change
+- [ ] Consider `-Wundef` in the ch32fun builds: a `#define` placed after the `#if` that
+      tests it evaluates to 0 silently, which cost real bench time in this repo twice
 
 ## Hardware
 
