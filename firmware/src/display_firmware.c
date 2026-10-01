@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 noknok / Christopher Houben
  *
- * noknok 1.42" Display Module Firmware  v0.6.0
+ * noknok 1.42" Display Module Firmware  v0.7.0
  *
  * v0.4.0: DEV-31 hardening C — independent watchdog + boot-attempt handshake
  *   with stage-1 (clears the counter once an I2C address is assigned).
@@ -85,7 +85,7 @@
 
 #define PROTOCOL_VERSION 0x01
 #define FW_VERSION_MAJOR 0
-#define FW_VERSION_MINOR 6
+#define FW_VERSION_MINOR 7
 #define FW_VERSION_PATCH 0
 
 #define CMD_CLEAR            0x01
@@ -181,6 +181,20 @@ static inline void iwdg_kick(void) { IWDG->CTLR = 0xAAAA; }
 #define DEFAULT_ROTATION       ROT_LANDSCAPE
 
 #define COLMOD_VALUE     0x05
+
+/* ── Which init runs ────────────────────────────────────────────────────────
+ * 1 = EastRising's real sequence incl. the gamma table (fixes brand colours)
+ * 0 = the minimal 5-command DCS init we shipped up to v0.6.0
+ * Full rationale at gpu_run_vendor_init(). DEFINED HERE, EARLY, ON PURPOSE:
+ * gpu_set_rotation() picks its MADCTL table with #if VENDOR_INIT, and an
+ * undefined macro evaluates to 0 in #if with no warning - so defining this
+ * further down silently selected the wrong table. */
+#define VENDOR_INIT   1
+
+/* Vendor COLMOD is 0x55 (full MIPI 16-bit encoding); the minimal init shipped
+ * 0x05. Both work on this panel - kept separate so they stay testable. */
+#define COLMOD_VENDOR 0x55
+
 #define SPI_BAUD_DIV     (2u << 3)   /* PCLK/8 = 6 MHz — proven on a rework  */
 
 #define BL_PWM_MAX       999
@@ -363,12 +377,34 @@ static void lcd_dat(uint8_t d)  { spi_tx(d); }
  * and by CMD_SET_ROTATION at runtime, so the two can never drift apart. */
 static void gpu_set_rotation(uint8_t rot)
 {
+    /* The MADCTL set depends on WHICH INIT RAN, because the vendor sequence sets
+     * scan direction itself with the vendor register 0xC3 = 0x11 (ss/gs). That
+     * mirrors the column axis in hardware - exactly what MX does in software - so
+     * with the vendor init every value is the minimal-init one XOR 0x40, which
+     * lands on the canonical rotation set. Mixing them up mirrors everything. */
+#if VENDOR_INIT
+    /* BENCH-MEASURED 1 Oct 2026, not derived. My derivation (minimal-init value
+     * XOR MX) produced unmirrored text but every entry 180 degrees from its name:
+     * 0xC3 = 0x11 sets SS *and* GS, reversing source AND gate scan, so it is a
+     * 180 degree flip on top of the mirror, not just a mirror. Measured mapping:
+     *   0x00 -> portrait flipped   0x60 -> landscape flipped
+     *   0xC0 -> portrait           0xA0 -> landscape
+     * Parity is preserved, so the rot & 1 geometry test below still holds. */
+    static const uint8_t rot_madctl[4] = {
+        0xC0,        /* 0 portrait          MX | MY */
+        0xA0,        /* 1 landscape         MV | MY */
+        0x00,        /* 2 portrait flipped  -       */
+        0x60         /* 3 landscape flipped MV | MX */
+    };
+#else
+    /* Minimal init (no 0xC3), so MX has to supply the mirror in software. */
     static const uint8_t rot_madctl[4] = {
         0x40,        /* 0 portrait          MX           */
         0x20,        /* 1 landscape         MV           */
         0x80,        /* 2 portrait flipped  MY           */
         0xE0         /* 3 landscape flipped MV | MX | MY */
     };
+#endif
 
     rot &= 0x03;
 #if PANEL_ROTATED_REWORK
@@ -385,6 +421,101 @@ static void gpu_set_rotation(uint8_t rot)
     else          { g_w = PANEL_W; g_h = PANEL_H;          /* portrait  */
                     g_xoff = GRAM_X_OFF; g_yoff = GRAM_Y_OFF; }
 }
+/* ── VENDOR INIT (EastRising ER-TFT1.42-1 8051 tutorial) ────────────────────
+ * 1 = run EastRising's real init, including the gamma table.
+ * 0 = the minimal 5-command DCS init we shipped up to v0.6.0.
+ *
+ * WHY THIS EXISTS. Up to v0.6.0 we ran a minimal init with NO gamma table,
+ * because a generic NV3022B table (Espressif's esp_lcd_nv3022b) gave a dead
+ * screen on four boards during bring-up. Consequence: the controller ran its
+ * power-on gamma, which maps mid-level codes to the wrong voltages, so brand
+ * purple #8B00F3 (R 54.8%, B 96.8%) rendered BLUE - the red was flattened out
+ * while the near-rail blue sailed through.
+ *
+ * WHY THE GENERIC TABLE KILLED THE PANEL. The vendor registers sit behind a
+ * locked page. EastRising unlocks with 0xFF,0xA5 and closes with 0xFF,0x00;
+ * the Espressif table used 0xFD,0x06,0x08. Wrong command, wrong key - so every
+ * vendor write hit a locked page. Worse, the gamma block is written through
+ * 0x2A/0x2B/0x2C, which OUTSIDE the unlocked page are CASET/RASET/RAMWR: doing
+ * that blind sets a nonsense address window and dumps 64 bytes of gamma data
+ * into GRAM. A dead screen is exactly what you would predict.
+ *
+ * WHAT THE GAMMA BLOCK IS. Not a file - a sequence of SPI register writes done
+ * once at power-up. It programs the voltage-vs-grey-level curve: VRP/VRN end
+ * references, VPMIDP/VPMIDN mid-points, and KP0..KP7 / KN0..KN7 knee points.
+ * Positive and negative sets exist because LCD pixels are driven with
+ * alternating polarity to avoid DC stress, and each polarity needs its own
+ * curve. 0x87/0x88/0x89 set the GVDD (4.7 V) and VCOMH/VCOML rails it rides on.
+ *
+ * MACHINE-EXTRACTED from NV3022.h : NV3022_Initial(), not retyped - the gamma
+ * block alone is 64 bytes and a transcription slip there is unfindable by eye.
+ *
+ * The table stops after SLPOUT (0x11). COLMOD, MADCTL and DISPON are then done
+ * in code so gpu_set_rotation() stays the single authority on orientation.
+ * NOTE the vendor sets scan direction with the VENDOR register 0xC3 = 0x11
+ * (ss/gs) and leaves MADCTL at 0x00 - so with this init the right MADCTL may
+ * be 0x00 rather than the 0x40 the minimal init needs. Test, do not assume. */
+/* VENDOR_INIT and COLMOD_VENDOR are defined in the config block near the top
+ * of the file - they MUST precede gpu_set_rotation(), whose MADCTL table is
+ * selected by #if VENDOR_INIT. An undefined macro silently evaluates to 0 in
+ * #if, with no warning, so a late define quietly selects the wrong table. */
+
+
+#if VENDOR_INIT
+static const uint8_t vendor_init_seq[] = {
+    0xFF, 1, 0xA5,
+    0x3A, 1, 0x65,
+    0x51, 1, 0x14,
+    0x53, 1, 0x11,
+    0x62, 1, 0x10,
+    0x86, 1, 0x01,
+    0x87, 1, 0x1E,
+    0x88, 1, 0x3E,
+    0x89, 1, 0x3C,
+    0x61, 1, 0x10,
+    0x93, 1, 0x12,
+    0x94, 1, 0x10,
+    0x95, 1, 0x10,
+    0x96, 1, 0x0E,
+    0xB2, 1, 0x0F,
+    0xB4, 1, 0x60,
+    0x91, 1, 0x10,
+    0xC1, 1, 0xF1,
+    0xC5, 1, 0xF8,
+    0xB5, 1, 0x00,
+    0xC3, 1, 0x11,
+    0x83, 1, 0x13,
+    0x2A, 4, 0x00, 0x84, 0x00, 0x84,
+    0x2B, 4, 0x00, 0x00, 0x00, 0x1F,
+    0x2C, 64,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x1C, 0x00, 0x16, 0x00, 0x1E,
+        0x00, 0x02, 0x00, 0x08, 0x00, 0x09, 0x00, 0x10,
+        0x00, 0x1F, 0x00, 0x19, 0x00, 0x1C, 0x00, 0x1E,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x08,
+        0x00, 0x01, 0x00, 0x03, 0x00, 0x06, 0x00, 0x00,
+        0x00, 0x0F, 0x00, 0x10, 0x00, 0x16, 0x00, 0x1D,
+    0xFF, 1, 0x00,
+    0x21, 0,
+    0x11, 0,
+    0x00                           /* terminator (0x00 = NOP, unused) */
+};
+
+/* Walk {cmd, count, data...} until the 0x00 terminator. */
+static void gpu_run_vendor_init(void)
+{
+    const uint8_t *p = vendor_init_seq;
+
+    while (*p) {
+        uint8_t cmd = *p++;
+        uint8_t n   = *p++;
+        lcd_cmd(cmd);
+        while (n--) lcd_dat(*p++);
+        spi_idle();
+    }
+}
+#endif
 static void gpu_init(void)
 {
     /* PC3 + PC4 = push-pull out (which is D/C and which is RES depends on
@@ -404,8 +535,18 @@ static void gpu_init(void)
     RES_LOW();  Delay_Ms(50);
     RES_HIGH(); Delay_Ms(150);
 
-    /* Minimal DCS init — bench-proven. The generic NV3022B vendor register
-     * table produced a completely dead screen on four boards. */
+    #if VENDOR_INIT
+    /* EastRising's real sequence: unlock, power/VCOM, gamma, lock, INVON,
+     * SLPOUT. No SWRESET - the vendor relies on the hardware reset above. */
+    gpu_run_vendor_init();
+    Delay_Ms(120);                              /* vendor waits 120 ms here */
+    lcd_cmd(0x3A); lcd_dat(COLMOD_VENDOR);
+    gpu_set_rotation(DEFAULT_ROTATION);         /* MADCTL + geometry + offsets */
+    lcd_cmd(0x29);                              /* DISPON */
+    Delay_Ms(10);
+#else
+    /* Minimal DCS init - what shipped up to v0.6.0. No gamma table, so brand
+     * colours render wrong (purple comes out blue). Kept as the fallback. */
     lcd_cmd(0x01);              /* SWRESET */
     Delay_Ms(150);
     lcd_cmd(0x11);              /* SLPOUT  */
@@ -415,6 +556,7 @@ static void gpu_init(void)
     lcd_cmd(0x21);              /* INVON — mandatory on this IPS cell */
     lcd_cmd(0x29);              /* DISPON */
     Delay_Ms(20);
+#endif
 }
 
 /* Open a GRAM window and leave the controller expecting pixels. */
