@@ -179,10 +179,37 @@
 
 #define SHOW             SHOW_PIDCODES
 
-#define DC_LOW()    (GPIOC->BCR  = (1u << 3))
-#define DC_HIGH()   (GPIOC->BSHR = (1u << 3))
-#define RES_LOW()   (GPIOC->BCR  = (1u << 4))
-#define RES_HIGH()  (GPIOC->BSHR = (1u << 4))
+/* ── Board revision: D/C and RES are SWAPPED between revisions ──────────────
+ * Bench-found 1 Oct 2026 on the first small-batch production unit.
+ *
+ *   rev 1.0 (reworked bench board)            PC3 = D/C,  PC4 = RES
+ *   rev 1.1 (production, corrected footprint) PC3 = RES,  PC4 = D/C
+ *
+ * Verified against hardware/kicad/module-I2C-Display_1_42inch.kicad_pcb:
+ * U1 pad 10 (PC3) -> Net-(DS1-RES) and U1 pad 11 (PC4) -> Net-(DS1-RS/DC).
+ * SPI is NOT affected: PC5 -> R6 -> SCL/SCK and PC6 -> R7 -> SDA/MOSI, which
+ * is what SPI1's fixed alternate function requires, so it could not have moved.
+ *
+ * SYMPTOM OF GETTING THIS WRONG — worth recognising, it is misleading: the
+ * backlight works, the MCU is clearly alive (the loop's backlight fades come
+ * and go on schedule), and the screen stays completely blank. Nothing points
+ * at the panel data path, because every command/data decision is toggling the
+ * panel's RESET line while the reset pulse goes to D/C. It looks exactly like
+ * a dead panel or a bad init. */
+#define BOARD_REV_11  1
+
+#if BOARD_REV_11
+  #define PIN_RES   3
+  #define PIN_DC    4
+#else
+  #define PIN_RES   4
+  #define PIN_DC    3
+#endif
+
+#define DC_LOW()    (GPIOC->BCR  = (1u << PIN_DC))
+#define DC_HIGH()   (GPIOC->BSHR = (1u << PIN_DC))
+#define RES_LOW()   (GPIOC->BCR  = (1u << PIN_RES))
+#define RES_HIGH()  (GPIOC->BSHR = (1u << PIN_RES))
 
 static inline void spi_tx(uint8_t b)
 {
