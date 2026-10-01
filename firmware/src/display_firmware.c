@@ -27,7 +27,8 @@
  * ── Hardware ──────────────────────────────────────────────────────────────
  *   PC1  I2C SDA                PC5  SPI1_SCK  -> 22R -> panel SCL
  *   PC2  I2C SCL                PC6  SPI1_MOSI -> 22R -> panel SDA
- *   PC3  D/C (RS)               PC4  panel RESET (active low)
+ *   PC3/PC4  D/C + panel RESET - SWAPPED between board revisions, see
+ *            BOARD_REV_11 below. rev 1.1: PC3 = RES, PC4 = D/C.
  *   PD2  Backlight PWM (TIM1_CH1, needs the MOE bit)
  *   PD1  SWIO / flash pad. NOTE: the status LED on this pin DOES NOT WORK —
  *        the debug module owns PD1. See Jira DEV-20. Not driven here.
@@ -142,7 +143,13 @@ static inline void iwdg_kick(void) { IWDG->CTLR = 0xAAAA; }
  * MX/MY remaps the column/row addresses, and the controller's true RAM width
  * is unknown, so a rotated offset has to be re-measured. That is why
  * SET_ROTATION is deliberately not implemented in stage 1. */
-#define PANEL_ROTATED_REWORK  1
+/* 1 Oct 2026: set to 0 for rev 1.1 production boards. The panel is mounted
+ * the right way round now, so no 180deg compensation is needed - confirmed
+ * on the marketing demo, where MADCTL 0x20 (MV, no mirror bits) came out
+ * right-side up and correctly positioned on a production unit. Portrait with
+ * no mirror bits is 0x00, which is what the 0 branch selects. Set back to 1
+ * only for the old reworked bench board. */
+#define PANEL_ROTATED_REWORK  0
 #if PANEL_ROTATED_REWORK
   #define MADCTL_VALUE   0xC0        /* MY | MX = 180 degrees */
 #else
@@ -288,10 +295,33 @@ static void build_info_response(void)
  * the panel's GRAM. Hardware SPI only, never bit-banged.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-#define DC_LOW()    (GPIOC->BCR  = (1u << 3))
-#define DC_HIGH()   (GPIOC->BSHR = (1u << 3))
-#define RES_LOW()   (GPIOC->BCR  = (1u << 4))
-#define RES_HIGH()  (GPIOC->BSHR = (1u << 4))
+/* ---- Board revision: D/C and RES are SWAPPED between revisions -----------
+ * Bench-found 1 Oct 2026 on the first small-batch production unit.
+ *
+ *   rev 1.0 (reworked bench board)            PC3 = D/C,  PC4 = RES
+ *   rev 1.1 (production, corrected footprint) PC3 = RES,  PC4 = D/C
+ *
+ * Verified against hardware/kicad/module-I2C-Display_1_42inch.kicad_pcb:
+ * U1 pad 10 (PC3) -> Net-(DS1-RES), U1 pad 11 (PC4) -> Net-(DS1-RS/DC).
+ * SPI is unaffected: PC5 -> R6 -> SCL/SCK, PC6 -> R7 -> SDA/MOSI, which is
+ * what SPI1's fixed alternate function requires. CS is still tied to GND.
+ *
+ * SYMPTOM IF WRONG: lit backlight, MCU visibly alive, screen totally blank -
+ * every command/data decision toggles the panel's RESET line while the reset
+ * pulse goes to D/C. Looks exactly like a dead panel or a bad init. */
+#define BOARD_REV_11  1
+
+#if BOARD_REV_11
+  #define PIN_RES   3
+  #define PIN_DC    4
+#else
+  #define PIN_RES   4
+  #define PIN_DC    3
+#endif
+#define DC_LOW()    (GPIOC->BCR  = (1u << PIN_DC))
+#define DC_HIGH()   (GPIOC->BSHR = (1u << PIN_DC))
+#define RES_LOW()   (GPIOC->BCR  = (1u << PIN_RES))
+#define RES_HIGH()  (GPIOC->BSHR = (1u << PIN_RES))
 
 static inline void spi_tx(uint8_t b)
 {
@@ -305,7 +335,8 @@ static void lcd_dat(uint8_t d)  { spi_tx(d); }
 
 static void gpu_init(void)
 {
-    /* PC3 D/C + PC4 RES = push-pull out; PC5 SCK + PC6 MOSI = AF push-pull */
+    /* PC3 + PC4 = push-pull out (which is D/C and which is RES depends on
+     * BOARD_REV_11); PC5 SCK + PC6 MOSI = AF push-pull */
     GPIOC->CFGLR &= ~(0xFu << (4 * 3) | 0xFu << (4 * 4)
                     | 0xFu << (4 * 5) | 0xFu << (4 * 6));
     GPIOC->CFGLR |=  (0x1u << (4 * 3)) | (0x1u << (4 * 4))

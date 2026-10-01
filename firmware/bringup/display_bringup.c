@@ -21,8 +21,8 @@
  * ── Hardware (verified against the schematic netlist, Jul 2026) ───────────
  *   PC5  SPI1_SCK   → 22R → panel SCL/SCK (pin 4)
  *   PC6  SPI1_MOSI  → 22R → panel SDA/MOSI (pin 3)
- *   PC3  D/C (RS)   → panel RS (pin 5)          low = command, high = data
- *   PC4  RESET      → panel RES (pin 6)         active low
+ *   PC3  rev1.1 → panel RES (pin 6) / rev1.0 → panel RS (pin 5)
+ *   PC4  rev1.1 → panel RS (pin 5) / rev1.0 → panel RES (pin 6)  (BOARD_REV_11)
  *   ---  CS tied to GND on the board (panel always selected)
  *   PD2  Backlight PWM (TIM1_CH1) → 100R → 2N7002 gate (low-side switch)
  *   PD1  Status LED (ACTIVE LOW: 3V3 → 2.2k → LED → PD1) + SWIO/flash pad
@@ -104,7 +104,13 @@
  *
  *   1 = rev 1.0 board with the panel rotated 180° (the rework)
  *   0 = corrected board from batch 2 onwards                                */
-#define PANEL_ROTATED_REWORK  1
+/* 1 Oct 2026: set to 0 for rev 1.1 production boards. The panel is mounted
+ * the right way round now, so no 180deg compensation is needed - confirmed
+ * on the marketing demo, where MADCTL 0x20 (MV, no mirror bits) came out
+ * right-side up and correctly positioned on a production unit. Portrait with
+ * no mirror bits is 0x00, which is what the 0 branch selects. Set back to 1
+ * only for the old reworked bench board. */
+#define PANEL_ROTATED_REWORK  0
 
 /* MADCTL (0x36) — memory access control: row/column order + RGB/BGR.
  * 0x00 = portrait, top-left origin, RGB order.
@@ -169,10 +175,33 @@ static const offset_t candidates[] = {
  * LOW-LEVEL PINS
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-#define DC_LOW()    (GPIOC->BCR  = (1u << 3))    /* PC3 = 0 → command        */
-#define DC_HIGH()   (GPIOC->BSHR = (1u << 3))    /* PC3 = 1 → data           */
-#define RES_LOW()   (GPIOC->BCR  = (1u << 4))    /* PC4 = 0 → panel in reset */
-#define RES_HIGH()  (GPIOC->BSHR = (1u << 4))
+/* ---- Board revision: D/C and RES are SWAPPED between revisions -----------
+ * Bench-found 1 Oct 2026 on the first small-batch production unit.
+ *
+ *   rev 1.0 (reworked bench board)            PC3 = D/C,  PC4 = RES
+ *   rev 1.1 (production, corrected footprint) PC3 = RES,  PC4 = D/C
+ *
+ * Verified against hardware/kicad/module-I2C-Display_1_42inch.kicad_pcb:
+ * U1 pad 10 (PC3) -> Net-(DS1-RES), U1 pad 11 (PC4) -> Net-(DS1-RS/DC).
+ * SPI is unaffected: PC5 -> R6 -> SCL/SCK, PC6 -> R7 -> SDA/MOSI, which is
+ * what SPI1's fixed alternate function requires. CS is still tied to GND.
+ *
+ * SYMPTOM IF WRONG: lit backlight, MCU visibly alive, screen totally blank -
+ * every command/data decision toggles the panel's RESET line while the reset
+ * pulse goes to D/C. Looks exactly like a dead panel or a bad init. */
+#define BOARD_REV_11  1
+
+#if BOARD_REV_11
+  #define PIN_RES   3
+  #define PIN_DC    4
+#else
+  #define PIN_RES   4
+  #define PIN_DC    3
+#endif
+#define DC_LOW()    (GPIOC->BCR  = (1u << PIN_DC))
+#define DC_HIGH()   (GPIOC->BSHR = (1u << PIN_DC))
+#define RES_LOW()   (GPIOC->BCR  = (1u << PIN_RES))
+#define RES_HIGH()  (GPIOC->BSHR = (1u << PIN_RES))
 #define LED_ON()    (GPIOD->BCR  = (1u << 1))    /* PD1 active LOW           */
 #define LED_OFF()   (GPIOD->BSHR = (1u << 1))
 
