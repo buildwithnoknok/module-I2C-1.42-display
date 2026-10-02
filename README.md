@@ -198,6 +198,12 @@ Entries below v0.4.0 were written retrospectively.
   command the main loop has not snapshotted yet. Fix = snapshot into a command buffer in the
   ISR at STOPF, reset `rx_len`, read-to-clear `last_err`.
 - The status LED is not driven — PD1/SWIO does not work (Jira DEV-20).
+- Icons, images and screen layouts are designed in the browser with the
+  [noknok Display Planner](https://buildwithnoknok.github.io/display-planner/) — it previews the
+  panel pixel-for-pixel (including this firmware's 8×8 font and the landscape boot orientation)
+  and exports ready-to-paste `noknok.py` code
+  ([source](https://github.com/buildwithnoknok/Ecosystem/tree/main/software/display-planner),
+  [how-to](https://buildwithnoknok.github.io/display-planner-guide/)).
 - Icons and a second (larger) font are not implemented in firmware, and no longer need to be:
   since `noknok.py` v1.9 (DEV-41) icons, images, `print()` and named regions are rendered
   on the Pico and streamed over the existing 1bpp `BLIT` path. `DRAW_ICON` (0x04) is
