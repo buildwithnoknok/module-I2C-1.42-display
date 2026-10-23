@@ -1,8 +1,9 @@
 # noknok 1.42″ Display Module (I2C)
 
 > **Status:** rev 1.1 boards are **working and in production** (20 pcs, Oct 2026). Firmware
-> **v0.7.0** is bench-verified on a production unit: enumeration, drawing, both text paths,
-> all four orientations, and brand colours rendering correctly.
+> **v0.7.1** is bench-verified on a production unit: enumeration, drawing, both text paths,
+> all four orientations, and brand colours rendering correctly. v0.7.1 hardens the I2C slave
+> (DEV-44): the error byte clears when read, and bus glitches no longer re-run old commands.
 
 > ### Rev 1.1 changed the panel control pins — firmware must match
 >
@@ -111,6 +112,21 @@ run under the shared noknok I2C bootloader; flashed over I2C, not SWD.
 Every release from **v0.4.0 onwards must add an entry here before the binary is committed.**
 Entries below v0.4.0 were written retrospectively.
 
+#### v0.7.1 — 23 Oct 2026
+- **I2C slave hardening (DEV-44).** Three fixes, protocol unchanged:
+  - **Error byte is read-to-clear.** A status read returns the last error and resets it to 0, so
+    an error belongs to the commands since the previous read. Before, it stayed set until power-off.
+  - **A STOP with no address match is ignored.** The ISR copies each finished command into its own
+    buffer at STOP and empties the receive buffer. Before, a glitch STOP (for example a host
+    `i2c.deinit()`) ran the previous command again, which is where the stray error 4 came from.
+  - **A status read can no longer wipe a waiting command.** Because of that copy, an address match
+    between a command's STOP and the main loop no longer loses the command.
+- Bench (Pi4RFID, production unit): on v0.7.0 an unknown command left error 2 on every later read,
+  and a blit followed by a deinit or a bare STOP turned it into error 4. On v0.7.1: error clears
+  after one read; 0 of 20 deinit cycles and 0 of 20 bare STOPs give error 4; 0 of 200
+  command-then-immediate-read pairs lose the command; a script that ends with a blit + deinit
+  leaves error 0 for the next one. `bench_dev41.py` 8/8.
+
 #### v0.7.0 — 1 Oct 2026
 - **Runs EastRising's real init sequence, including the gamma table** (`VENDOR_INIT`), ported
   from the ER-TFT1.42-1 8051 tutorial on buydisplay.com. **This fixes brand colours**:
@@ -192,11 +208,6 @@ Entries below v0.4.0 were written retrospectively.
 
 ### Known gaps
 
-- **I2C slave robustness (Jira DEV-44, found 19 Sep 2026):** `last_err` is sticky (never
-  cleared — power-cycle to reset); a STOP without a preceding address match re-executes the
-  stale `rx_buf` (seen as error 4 after a host bus deinit); an address match can wipe a
-  command the main loop has not snapshotted yet. Fix = snapshot into a command buffer in the
-  ISR at STOPF, reset `rx_len`, read-to-clear `last_err`.
 - The status LED is not driven — PD1/SWIO does not work (Jira DEV-20).
 - Icons, images and screen layouts are designed in the browser with the
   [noknok Display Planner](https://buildwithnoknok.github.io/display-planner/) — it previews the

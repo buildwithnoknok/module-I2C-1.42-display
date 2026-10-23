@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 noknok / Christopher Houben
  *
- * noknok 1.42" Display Module Firmware  v0.7.0
+ * noknok 1.42" Display Module Firmware  v0.7.1
  *
  * v0.4.0: DEV-31 hardening C — independent watchdog + boot-attempt handshake
  *   with stage-1 (clears the counter once an I2C address is assigned).
@@ -59,7 +59,8 @@
  *     [0xB1]                                      GET_VERSION -> next read = 4 B
  *   Master READ (2 bytes, default):
  *     [0] status  bit0 = busy drawing
- *     [1] last error (0 = none)
+ *     [1] last error (0 = none). Read-to-clear since v0.7.1 (DEV-44): the
+ *         next status read returns 0 unless a new error happened.
  *   Master READ (4 bytes, after 0xB1):
  *     [PROTOCOL_VER, FW_MAJOR, FW_MINOR, FW_PATCH]
  *   Master READ (5 bytes, after 0x15):
@@ -86,7 +87,7 @@
 #define PROTOCOL_VERSION 0x01
 #define FW_VERSION_MAJOR 0
 #define FW_VERSION_MINOR 7
-#define FW_VERSION_PATCH 0
+#define FW_VERSION_PATCH 1
 
 #define CMD_CLEAR            0x01
 #define CMD_FILL_RECT        0x02
@@ -231,6 +232,11 @@ static volatile uint8_t     info_pending    = 0;
 static volatile uint8_t rx_buf[RX_BUF_SIZE];
 static volatile uint8_t rx_len    = 0;
 static volatile uint8_t cmd_ready = 0;
+/* DEV-44: the ISR snapshots a finished write into cmd_buf at STOP, so a later
+ * address match or a spurious STOP can neither wipe nor re-run a command. */
+static volatile uint8_t cmd_buf[RX_BUF_SIZE];
+static volatile uint8_t cmd_len   = 0;
+static volatile uint8_t addressed = 0;   /* 1 between an address match and its STOP */
 
 static volatile uint8_t tx_buf[TX_BUF_SIZE];
 static volatile uint8_t tx_len = 0;
@@ -860,6 +866,7 @@ void I2C1_EV_IRQHandler(void)
 
     if (star1 & I2C_STAR1_ADDR) {
         rx_len = 0;
+        addressed = 1;
         I2C1->CTLR1 |= I2C_CTLR1_ACK;
 
         if (star2 & I2C_STAR2_TRA) {
@@ -874,6 +881,7 @@ void I2C1_EV_IRQHandler(void)
             } else {
                 tx_buf[0] = gpu_busy ? 0x01 : 0x00;
                 tx_buf[1] = last_err;
+                last_err = 0;            /* DEV-44: read-to-clear */
                 tx_len = 2; tx_idx = 0;
             }
             I2C1->DATAR = tx_buf[tx_idx++];
@@ -908,9 +916,16 @@ void I2C1_EV_IRQHandler(void)
                 version_pending = 1;
             else if (rx_len == 1 && rx_buf[0] == CMD_GET_INFO)
                 info_pending = 1;
-            else if (rx_len > 0)
+            else if (addressed && rx_len > 0) {
+                /* DEV-44: snapshot here; a STOP with no address match (bus
+                 * glitch, host i2c.deinit()) must not re-run the old command. */
+                for (uint8_t i = 0; i < rx_len; i++) cmd_buf[i] = rx_buf[i];
+                cmd_len   = rx_len;
                 cmd_ready = 1;
+            }
         }
+        rx_len    = 0;
+        addressed = 0;
 
         I2C1->CTLR1 |= I2C_CTLR1_ACK;
         return;
@@ -935,10 +950,14 @@ static void process_command(void)
      * land the next command in rx_buf while we are still drawing from it. The
      * other noknok modules do not need this because their commands are instant. */
     uint8_t cmd[RX_BUF_SIZE];
-    uint8_t n = rx_len;
-    if (n == 0) return;
+    uint8_t n;
+    __disable_irq();   /* the ISR must not rewrite cmd_buf mid-copy */
+    n = cmd_len;
     if (n > RX_BUF_SIZE) n = RX_BUF_SIZE;
-    for (uint8_t i = 0; i < n; i++) cmd[i] = rx_buf[i];
+    for (uint8_t i = 0; i < n; i++) cmd[i] = cmd_buf[i];
+    cmd_len = 0;
+    __enable_irq();
+    if (n == 0) return;
 
     switch (cmd[0]) {
     case CMD_CLEAR:
