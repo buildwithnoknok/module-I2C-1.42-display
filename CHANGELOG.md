@@ -4,6 +4,10 @@ Newest first. One entry per version bump, written in the same commit as the bump
 `## <version> - <date>` then `- DEV-xx - what changed and why. Breaking: yes/no.`
 Convention: Confluence "Development Conventions" (SD space, page 120160257).
 
+## Tools - 2026-11-17
+
+- DEV-77 - the bring-up / vendor-init / brand-purple reproduction scripts are now in `tools/bench/bringup/` (were only on a bench host). Tools only, no firmware change. Breaking: no.
+
 ## 0.7.1 - 2026-10-23
 
 - DEV-44 - I2C slave hardening: the error byte is read-to-clear (a status read returns it and resets it
