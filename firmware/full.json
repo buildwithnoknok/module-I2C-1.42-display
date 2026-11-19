@@ -6,13 +6,13 @@
   "file": "firmware/bin/display_full.bin",
   "flash_at": "0x08000000",
   "size": 16384,
-  "crc32": "863c696f",
+  "crc32": "904c11e8",
   "app": {
     "source": "firmware/bin/display_firmware.bin",
-    "version": "0.7.1",
+    "version": "0.8.0",
     "offset": "0x1400",
-    "size": 5672,
-    "crc32": "e34d79dc"
+    "size": 5712,
+    "crc32": "fc054573"
   },
   "bootloader": [
     {
