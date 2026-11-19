@@ -35,6 +35,16 @@ SECTIONS
 		_einit = .;
 	} >FLASH AT>FLASH
 
+	/* noknok application header (DEV-21 / ADR-005) at a FIXED app base + 0x100, just past the
+	 * vector table. Stage-1 reads it at VERIFY. The explicit AT() keeps load address == address. */
+	.app_hdr ORIGIN(FLASH) + 0x100 : AT(ORIGIN(FLASH) + 0x100)
+	{
+		KEEP(*(.app_hdr))
+	} >FLASH
+	ASSERT( SIZEOF(.init) <= 0x100, "vector table has grown into the app header slot" )
+	ASSERT( ADDR(.app_hdr) == ORIGIN(FLASH) + 0x100 && LOADADDR(.app_hdr) == ADDR(.app_hdr) && SIZEOF(.app_hdr) == 20,
+	        "app header must be 20 bytes at app base + 0x100" )
+
 	.text :
 	{
 		. = ALIGN(4);

@@ -59,6 +59,7 @@ protocol, so the display plugs into the standard JST SH bus like any other modul
   the CH32's ~12 KB app flash. Anything beyond that is **rendered on the Pico and blitted** as a
   1bpp bitmap (host-supplied assets), so the module is **not limited by its flash** — makers add
   fonts on the Pico side.
+- **Identity (`0xB4` GET_ID, ADR-005):** write `[0xB4]`, the next read returns the 10-byte identity `[UID x8][TYPE 0x05][CRC8]`, identical to the reply at the staging address 0x7F; answered at any time in the assigned state.
 - **Standard noknok module behaviour:** dynamic-address enumeration, `GET_VERSION` (0xB1),
   `ENTER_BOOTLOADER` (0xB0), I2C-OTA via the shared CH32V003 bootloader.
 

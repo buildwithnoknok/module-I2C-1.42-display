@@ -57,6 +57,7 @@
  *     [0x15]                                      GET_INFO -> next read = 5 B
  *     [0xB0]                                      ENTER_BOOTLOADER
  *     [0xB1]                                      GET_VERSION -> next read = 4 B
+ *     [0xB4]                     GET ID — next read returns the 10-byte identity [UID x8][TYPE][CRC8] (same as at 0x7F)
  *   Master READ (2 bytes, default):
  *     [0] status  bit0 = busy drawing
  *     [1] last error (0 = none). Read-to-clear since v0.7.1 (DEV-44): the
@@ -86,8 +87,18 @@
 
 #define PROTOCOL_VERSION 0x01
 #define FW_VERSION_MAJOR 0
-#define FW_VERSION_MINOR 7
-#define FW_VERSION_PATCH 1
+#define FW_VERSION_MINOR 8
+#define FW_VERSION_PATCH 0
+
+/* noknok bootloader application header (DEV-21 / ADR-005): 20 bytes at app base + 0x100
+ * (placed by app.ld). Stage-1 (DEV-22) copies the type word into the metadata page at
+ * VERIFY, so a parked module can still say what it is (0xB4 at 0x7E). Fields:
+ * "NKA1", target "V003", flash layout 2, version (protocol<<24|maj<<16|min<<8|patch), type. */
+typedef struct { uint32_t magic, target, layout, version, type; } app_hdr_t;
+__attribute__((section(".app_hdr"), used))
+const app_hdr_t app_hdr = { 0x31414B4Eu, 0x33303056u, 2,
+    ((uint32_t)PROTOCOL_VERSION << 24) | (FW_VERSION_MAJOR << 16) | (FW_VERSION_MINOR << 8) | FW_VERSION_PATCH,
+    MODULE_TYPE };
 
 #define CMD_CLEAR            0x01
 #define CMD_FILL_RECT        0x02
@@ -101,6 +112,7 @@
 #define CMD_GET_INFO         0x15
 #define CMD_ENTER_BOOTLOADER 0xB0
 #define CMD_GET_VERSION      0xB1
+#define CMD_GET_ID      0xB4        /* report the 10-byte enumeration reply [UID x8][TYPE][CRC8] (ADR-005) */
 
 #define UID_ADDR         ((volatile uint8_t*)0x1FFFF7E8)
 #define UID_LEN          8
@@ -227,6 +239,7 @@ static volatile DeviceState dev_state = DEV_BOOT_WAITING;
 static volatile uint32_t    ms_tick   = 0;
 static volatile uint8_t     new_addr  = 0;
 static volatile uint8_t     version_pending = 0;
+static volatile uint8_t     id_pending = 0;      /* set in ISR on 0xB4; next read returns the 10-byte identity */
 static volatile uint8_t     info_pending    = 0;
 
 static volatile uint8_t rx_buf[RX_BUF_SIZE];
@@ -872,7 +885,8 @@ void I2C1_EV_IRQHandler(void)
         if (star2 & I2C_STAR2_TRA) {
             if (dev_state == DEV_ENUM_READY) {
                 build_uid_response();
-            } else if (version_pending) {
+            } else if (id_pending) { id_pending = 0; build_uid_response(); }
+            else if (version_pending) {
                 version_pending = 0;
                 build_version_response();
             } else if (info_pending) {
@@ -914,6 +928,8 @@ void I2C1_EV_IRQHandler(void)
              * lets the master's very next read race ahead of the response. */
             if (rx_len == 1 && rx_buf[0] == CMD_GET_VERSION)
                 version_pending = 1;
+            else if (rx_len == 1 && rx_buf[0] == CMD_GET_ID)
+                id_pending = 1;   /* GET_ID: latched in the ISR like 0xB1, never via the main loop */
             else if (rx_len == 1 && rx_buf[0] == CMD_GET_INFO)
                 info_pending = 1;
             else if (addressed && rx_len > 0) {

@@ -4,6 +4,10 @@ Newest first. One entry per version bump, written in the same commit as the bump
 `## <version> - <date>` then `- DEV-xx - what changed and why. Breaking: yes/no.`
 Convention: Confluence "Development Conventions" (SD space, page 120160257).
 
+## 0.8.0 - 2026-11-20
+
+- DEV-21 - answers the new standard command `0xB4` GET_ID (ADR-005): write `[0xB4]`, the next read returns the 10-byte identity `[UID x8][TYPE][CRC8]`, identical to the 0x7F enumeration reply; latched in the I2C ISR at STOP like `0xB1` (never via the main loop). `0xB1` and `PROTOCOL_VERSION` (0x01) unchanged. Adds the 20-byte application header `{"NKA1", "V003", layout 2, version, type 0x05}` at app base + 0x100 (app.ld places it; the build asserts size and position) that the DEV-22 stage-1 copies into the metadata page at VERIFY. Not tested on hardware yet (bench list in the DEV-21 comment). Breaking: no.
+
 ## Full image - 2026-11-19
 
 - DEV-197 - new `firmware/bin/display_full.bin`: the full flash image (stage-0 + stage-1 1.2.0 + display firmware 0.7.1 + valid-app marker) for a first flash or recovery over SWD, recorded in `firmware/full.json`. Built from released parts by the new `tools/mk_full_image.py`; `--check` fails when the full image no longer matches `firmware/index.json`, which still points at the app-only OTA image. README: how to flash it, and why the app image must never go to `0x08000000`. No firmware change. Breaking: no.
