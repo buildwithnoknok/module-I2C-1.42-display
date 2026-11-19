@@ -246,6 +246,26 @@ mapping, and brand colours rendering blue.
 KiCad schematic in `hardware/` (to be added). Panel: [ER-TFT1.42-1 datasheet](https://www.buydisplay.com)
 · Controller: NV3022B.
 
+## Flashing a blank or bricked module (full image)
+
+`firmware/bin/display_full.bin` is the **full image**: the noknok bootloader (stage-0 + stage-1), this firmware and its
+valid-app marker, over the whole 16 KB flash. Use it for a first flash or a recovery with a WCH-LinkE on the flash pads:
+
+```
+minichlink -w firmware/bin/display_full.bin flash -b
+```
+
+(or WCH-LinkUtility: write it at `0x08000000`). After that, updates go over I2C from the brain with the app image
+`firmware/bin/display_firmware.bin`, which is what `firmware/index.json` points at.
+
+> **Never flash the app image (`display_firmware.bin`) at `0x08000000`.** It is linked at `0x1400`; written at the flash
+> start it wipes the bootloader and the module looks dead. Flash the full image to recover.
+
+`firmware/full.json` records which app, stage-0 and stage-1 the full image was built from (size and CRC32 of each).
+Rebuild it after every firmware release with `python tools/mk_full_image.py` (needs a clone of
+[module-I2C-bootloader](https://github.com/buildwithnoknok/module-I2C-bootloader) next to this repo);
+`python tools/mk_full_image.py --check` (CI runs it) fails if it no longer matches `firmware/index.json`.
+
 ## License
 
 Follows the noknok open standard once public — firmware **MIT**, hardware **CC BY-SA 4.0** — with a

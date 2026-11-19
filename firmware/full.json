@@ -1,0 +1,38 @@
+{
+  "format": 1,
+  "note": "FULL image for a first flash or recovery over SWD (WCH-LinkE) / WCHISPTool: write it at 0x08000000. It is not an OTA payload - firmware/index.json points at the app image.",
+  "module": "display",
+  "chip": "ch32v003",
+  "file": "firmware/bin/display_full.bin",
+  "flash_at": "0x08000000",
+  "size": 16384,
+  "crc32": "863c696f",
+  "app": {
+    "source": "firmware/bin/display_firmware.bin",
+    "version": "0.7.1",
+    "offset": "0x1400",
+    "size": 5672,
+    "crc32": "e34d79dc"
+  },
+  "bootloader": [
+    {
+      "part": "stage0",
+      "source": "module-I2C-bootloader/firmware/bin/noknok_stage0.bin",
+      "commit": "b25e886",
+      "offset": "0x0000",
+      "size": 704,
+      "crc32": "194b4155"
+    },
+    {
+      "part": "stage1",
+      "source": "module-I2C-bootloader/firmware/bin/noknok_stage1.bin",
+      "commit": "ff8e54f",
+      "offset": "0x0400",
+      "size": 2984,
+      "crc32": "5b0f52d3",
+      "version": "1.2.0"
+    }
+  ],
+  "metadata_offset": "0x3FC0",
+  "layout": 2
+}

@@ -4,6 +4,10 @@ Newest first. One entry per version bump, written in the same commit as the bump
 `## <version> - <date>` then `- DEV-xx - what changed and why. Breaking: yes/no.`
 Convention: Confluence "Development Conventions" (SD space, page 120160257).
 
+## Full image - 2026-11-19
+
+- DEV-197 - new `firmware/bin/display_full.bin`: the full flash image (stage-0 + stage-1 1.2.0 + display firmware 0.7.1 + valid-app marker) for a first flash or recovery over SWD, recorded in `firmware/full.json`. Built from released parts by the new `tools/mk_full_image.py`; `--check` fails when the full image no longer matches `firmware/index.json`, which still points at the app-only OTA image. README: how to flash it, and why the app image must never go to `0x08000000`. No firmware change. Breaking: no.
+
 ## Tools - 2026-11-17
 
 - DEV-77 - the bring-up / vendor-init / brand-purple reproduction scripts are now in `tools/bench/bringup/` (were only on a bench host). Tools only, no firmware change. Breaking: no.
