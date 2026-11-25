@@ -4,6 +4,10 @@ Newest first. One entry per version bump, written in the same commit as the bump
 `## <version> - <date>` then `- DEV-xx - what changed and why. Breaking: yes/no.`
 Convention: Confluence "Development Conventions" (SD space, page 120160257).
 
+## Docs - 2026-11-25
+
+- DEV-69 - README brought up to firmware 0.7.1 / rev 1.1: GRAM offset (24, 0) on a 128-wide RAM instead of the disproved "132x162 window, tune the offset" note, landscape 160x80 boot default stated, DEV-44 ticked as done in 0.7.1, status-LED gap points at the DEV-20 decision, `hardware/` contents listed (KiCad project, schematic PDF, BOM), licence section no longer says the repo is private (public since Oct 2026) and links the safety page. Docs only, no firmware change. Breaking: no.
+
 ## Full image - 2026-11-19
 
 - DEV-197 - new `firmware/bin/display_full.bin`: the full flash image (stage-0 + stage-1 1.2.0 + display firmware 0.7.1 + valid-app marker) for a first flash or recovery over SWD, recorded in `firmware/full.json`. Built from released parts by the new `tools/mk_full_image.py`; `--check` fails when the full image no longer matches `firmware/index.json`, which still points at the app-only OTA image. README: how to flash it, and why the app image must never go to `0x08000000`. No firmware change. Breaking: no.
