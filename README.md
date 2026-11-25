@@ -87,8 +87,9 @@ pins (1, 2) and pin 9 = NC.
   (host-side only).
 - **Backlight boost:** MT3540-F23 → **4.5 V** (R1 33 k / R2 12 k), 33 Ω ballast, 2N7002 low-side
   PWM MOSFET on PD2 (100 Ω gate + 100 k pulldown). Boost taps 3.3V-IN (before the series R).
-- **Panel:** single VCC, 4-wire SPI. **80×160 is a window in the NV3022B's 132×162 RAM → the
-  init sequence needs a column/row offset** (tune at bring-up, like a small ST7735).
+- **Panel:** single VCC, 4-wire SPI. The 80×160 glass sits in GRAM at a fixed offset of
+  **(24, 0)**: the effective RAM is 128 wide, so 24 is symmetric and holds in all four
+  orientations (bench-verified, v0.6.0). The module boots **landscape 160×80**.
 - **noknok front-end:** 2× JST SH, 3-pad pogo flash pads (PD1/SWIO), UART debug pads, status
   LED, reset RC. No castellated edges.
 
@@ -208,7 +209,8 @@ Entries below v0.4.0 were written retrospectively.
 
 ### Known gaps
 
-- The status LED is not driven — PD1/SWIO does not work (Jira DEV-20).
+- The status LED on PD1/SWIO is not driven: the debug module owns PD1 (Jira DEV-20, decided; new
+  boards follow Flashing Interface V3).
 - Icons, images and screen layouts are designed in the browser with the
   [noknok Display Planner](https://buildwithnoknok.github.io/display-planner/) — it previews the
   panel pixel-for-pixel (including this firmware's 8×8 font and the landscape boot orientation)
@@ -235,7 +237,8 @@ mapping, and brand colours rendering blue.
       own `LCD_SetPos()`
 - [x] Firmware v0.7.0 — bench-verified end to end on a production unit, vendor gamma, all four
       orientations, landscape default
-- [ ] **DEV-44** I2C slave robustness hardening (the one real open firmware item)
+- [x] Firmware v0.7.1 — **DEV-44** I2C slave hardening (read-to-clear error byte, no re-run on a
+      bare STOP)
 - [ ] Re-check `BOARD_REV_11` and the MADCTL table on the next panel lot — both are
       hardware-specific and neither is guaranteed across a lot change
 - [ ] Consider `-Wundef` in the ch32fun builds: a `#define` placed after the `#if` that
@@ -243,7 +246,7 @@ mapping, and brand colours rendering blue.
 
 ## Hardware
 
-KiCad schematic in `hardware/` (to be added). Panel: [ER-TFT1.42-1 datasheet](https://www.buydisplay.com)
+KiCad project (schematic + PCB) in `hardware/kicad/`, schematic PDF and BOM in `hardware/`. Panel: [ER-TFT1.42-1 datasheet](https://www.buydisplay.com)
 · Controller: NV3022B.
 
 ## Flashing a blank or bricked module (full image)
@@ -268,6 +271,5 @@ Rebuild it after every firmware release with `python tools/mk_full_image.py` (ne
 
 ## License
 
-Follows the noknok open standard once public — firmware **MIT**, hardware **CC BY-SA 4.0** — with a
-link to the central safety & liability page. (Repo is private during development; Christopher sets
-visibility + adds LICENSE files at the public rollout.)
+Firmware **MIT** (`LICENSE`), hardware **CC BY-SA 4.0** (`LICENSE-hardware`). Safety and liability:
+[buildwithnoknok.github.io/safety-and-license](https://buildwithnoknok.github.io/safety-and-license/).
