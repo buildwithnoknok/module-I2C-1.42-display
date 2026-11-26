@@ -3,7 +3,7 @@
   "version": "0.8.0",
   "url": "https://raw.githubusercontent.com/buildwithnoknok/module-I2C-1.42-display/main/firmware/bin/display_firmware.bin",
   "layout": 2,
-  "size": 5712,
-  "crc32": "fc054573",
+  "size": 5700,
+  "crc32": "a6eba900",
   "released": "2026-11-20"
 }
